@@ -1,0 +1,4 @@
+[workspace]
+members = [
+    "programs/memecoin_program",
+] 

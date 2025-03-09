@@ -1,0 +1,16 @@
+{
+  "version": "0.1.0",
+  "name": "memecoin_program",
+  "instructions": [
+    {
+      "name": "createToken",
+      "accounts": [
+        // Account definitions...
+      ],
+      "args": [
+        // Argument definitions...
+      ]
+    }
+  ],
+  // Other IDL fields...
+} 
