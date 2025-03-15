@@ -24,7 +24,7 @@ export default function RootLayout({ children }) {
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <WalletProvider>
           <TopBar />
-          <main style={{ paddingTop: '64px' }}>
+          <main style={{ padding: '24px' }}>
             {children}
           </main>
         </WalletProvider>

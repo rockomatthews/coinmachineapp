@@ -1,69 +1,87 @@
 "use client";
 
-import { Box, Typography, Button } from '@mui/material';
+import { Box, Typography, Button, Container, Divider, Grid, Paper } from '@mui/material';
 import { useRouter } from 'next/navigation';
+import TokenWall from '@/components/TokenWall';
+import Link from 'next/link';
 
 export default function HomePage() {
   const router = useRouter();
 
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      alignItems: 'center', 
-      justifyContent: 'center', 
-      minHeight: '100vh',
-      textAlign: 'center',
-      p: 3
-    }}>
-      <Typography variant="h2" gutterBottom>
-        Welcome to The Coin Agency
-      </Typography>
-      <Typography variant="h5" gutterBottom sx={{ mb: 4 }}>
-        Create, manage, and stake your memecoins with ease
-      </Typography>
-
-      <Box sx={{ display: 'flex', gap: 2 }}>
+    <Container maxWidth="lg">
+      <Box sx={{ textAlign: 'center', py: 8 }}>
+        <Typography variant="h2" component="h1" gutterBottom>
+          The Coin Agency
+        </Typography>
+        <Typography variant="h5" component="h2" sx={{ mb: 4, color: 'text.secondary' }}>
+          Create and launch your own Solana token in minutes
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 4, color: '#0072e5', fontWeight: 'bold' }}>
+          Now with automatic DEX listing! Your token will be tradable on Birdeye and other DEXes instantly.
+        </Typography>
         <Button 
           variant="contained" 
-          size="large"
+          color="primary" 
+          size="large" 
           onClick={() => router.push('/create')}
-          sx={{ 
-            backgroundColor: 'limegreen',
-            '&:hover': {
-              backgroundColor: 'darkgreen'
-            }
-          }}
+          sx={{ fontSize: '1.2rem', py: 1.5, px: 4 }}
         >
-          Create a Coin
-        </Button>
-        <Button 
-          variant="contained" 
-          size="large"
-          onClick={() => router.push('/staking')}
-          sx={{ 
-            backgroundColor: 'limegreen',
-            '&:hover': {
-              backgroundColor: 'darkgreen'
-            }
-          }}
-        >
-          Staking
-        </Button>
-        <Button 
-          variant="contained" 
-          size="large"
-          onClick={() => router.push('/manage')}
-          sx={{ 
-            backgroundColor: 'limegreen',
-            '&:hover': {
-              backgroundColor: 'darkgreen'
-            }
-          }}
-        >
-          Manage Coin
+          Create New Token
         </Button>
       </Box>
-    </Box>
+      
+      <Box sx={{ mb: 6 }}>
+        <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
+          Recently Created Tokens
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
+          Check out the latest tokens created by our community
+        </Typography>
+        <TokenWall />
+      </Box>
+
+      <Divider sx={{ my: 6 }} />
+
+      <Box sx={{ mb: 6 }}>
+        <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
+          Advanced Features
+        </Typography>
+        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
+          For developers and experienced token creators
+        </Typography>
+        
+        <Grid container spacing={4}>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Typography variant="h6" component="h3" gutterBottom>
+                Raydium Liquidity Pool Guide
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2, flexGrow: 1 }}>
+                Tokens are now automatically listed on DEXes! This guide explains the technical details of how our automatic Raydium liquidity pools work and what to do if you need to add more liquidity.
+              </Typography>
+              <Link href="/README-RAYDIUM.md" passHref>
+                <Button variant="outlined" color="primary">
+                  View Guide
+                </Button>
+              </Link>
+            </Paper>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Typography variant="h6" component="h3" gutterBottom>
+                Token Utilities
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2, flexGrow: 1 }}>
+                Explore ways to add utility to your token, including governance features, staking rewards, and community engagement tools.
+              </Typography>
+              <Button variant="outlined" color="primary" disabled>
+                Coming Soon
+              </Button>
+            </Paper>
+          </Grid>
+        </Grid>
+      </Box>
+    </Container>
   );
 }
