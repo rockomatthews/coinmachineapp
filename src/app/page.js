@@ -4,6 +4,7 @@ import { Box, Typography, Button, Container, Divider, Grid, Paper } from '@mui/m
 import { useRouter } from 'next/navigation';
 import TokenWall from '@/components/TokenWall';
 import Link from 'next/link';
+import Logo from '@/components/Logo';
 
 export default function HomePage() {
   const router = useRouter();
@@ -11,21 +12,29 @@ export default function HomePage() {
   return (
     <Container maxWidth="lg">
       <Box sx={{ textAlign: 'center', py: 8 }}>
-        <Typography variant="h2" component="h1" gutterBottom>
-          The Coin Agency
-        </Typography>
-        <Typography variant="h5" component="h2" sx={{ mb: 4, color: 'text.secondary' }}>
+        <Box sx={{ maxWidth: '400px', mx: 'auto', mb: 2 }}>
+          <Logo height={200} />
+        </Box>
+        <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'text.secondary' }}>
           Create and launch your own Solana token in minutes
         </Typography>
-        <Typography variant="body1" sx={{ mb: 4, color: '#0072e5', fontWeight: 'bold' }}>
+        <Typography variant="body1" sx={{ mb: 4, color: '#FFD700', fontWeight: 'bold' }}>
           Now with automatic DEX listing! Your token will be tradable on Birdeye and other DEXes instantly.
         </Typography>
         <Button 
           variant="contained" 
-          color="primary" 
           size="large" 
           onClick={() => router.push('/create')}
-          sx={{ fontSize: '1.2rem', py: 1.5, px: 4 }}
+          sx={{ 
+            fontSize: '1.2rem', 
+            py: 1.5, 
+            px: 4,
+            backgroundColor: '#FFD700',
+            color: 'black',
+            '&:hover': {
+              backgroundColor: '#FFCD00'
+            }
+          }}
         >
           Create New Token
         </Button>

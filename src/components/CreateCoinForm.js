@@ -54,6 +54,7 @@ import { createSimplifiedPool, createRaydiumPool } from '@/utils/raydiumPool';
 import Link from 'next/link';
 import BN from 'bn.js';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 
 // Fee constants - similar to pump.fun model
 const BASE_MINT_FEE = 0.1; // 0.1 SOL base fee
@@ -121,6 +122,7 @@ function CreateCoinForm() {
   const totalProgressSteps = 5; // Total steps in the process
   
   const { walletAddress: contextWalletAddress } = useContext(WalletContext) || {};
+  const router = useRouter();
   
   useEffect(() => {
     if (contextWalletAddress) {
@@ -839,6 +841,9 @@ View on Solscan: ${solscanUrl}`;
       setSuccessMessage(successMsg);
       setSuccess(true);
       setLoading(false);
+
+      // Redirect to token info page
+      router.push(`/token/${mintAddress.toString()}`);
 
     } catch (error) {
       console.error("Error creating token:", {

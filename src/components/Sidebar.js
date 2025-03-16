@@ -5,11 +5,13 @@ import { useRouter } from 'next/navigation';
 import CreateIcon from '@mui/icons-material/Create';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import SettingsIcon from '@mui/icons-material/Settings';
+import HomeIcon from '@mui/icons-material/Home';
 
 export default function Sidebar({ open, onClose }) {
   const router = useRouter();
 
   const menuItems = [
+    { text: 'Home', icon: <HomeIcon />, path: '/' },
     { text: 'Create a Coin', icon: <CreateIcon />, path: '/create' },
     { text: 'Staking', icon: <MonetizationOnIcon />, path: '/staking' },
     { text: 'Manage Coin', icon: <SettingsIcon />, path: '/manage' }

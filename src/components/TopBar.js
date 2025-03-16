@@ -64,9 +64,10 @@ export default function TopBar() {
             onClick={connectWallet}
             sx={{ 
               marginLeft: 'auto',
-              backgroundColor: 'limegreen',
+              backgroundColor: '#FFD700',
+              color: 'black',
               '&:hover': {
-                backgroundColor: 'darkgreen'
+                backgroundColor: '#FFCD00'
               }
             }}
           >
