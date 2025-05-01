@@ -8,10 +8,17 @@ const nextConfig = {
         hostname: 'ipfs.io',
         port: '',
         pathname: '/ipfs/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.ipfs.dweb.link',
+        port: '',
+        pathname: '/**',
       }
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60,
   },
   webpack: (config, { isServer }) => {
     // Only apply in browser context (not server)
@@ -27,6 +34,13 @@ const nextConfig = {
       };
     }
     return config;
+  },
+  // Production optimizations
+  compress: true,
+  poweredByHeader: false,
+  swcMinify: true,
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production',
   },
 };
 

@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String        @id @default(cuid())
+  walletAddress String        @unique
+  email         String?       @unique
+  createdAt     DateTime      @default(now())
+  lastLogin     DateTime      @updatedAt
+  tokensCreated Int           @default(0)
+  isVerified    Boolean       @default(false)
+  tokens        Token[]
+  transactions  Transaction[]
+}
+
+model Token {
+  id             String        @id @default(cuid())
+  mintAddress    String        @unique
+  creatorWallet  String
+  name           String
+  symbol         String
+  description    String
+  imageUrl       String
+  totalSupply    BigInt
+  decimals       Int
+  openBookMarket String?
+  createdAt      DateTime      @default(now())
+  status         TokenStatus   @default(ACTIVE)
+  metadataUri    String
+  creator        User          @relation(fields: [creatorWallet], references: [walletAddress])
+  transactions   Transaction[]
+}
+
+model Transaction {
+  id          String            @id @default(cuid())
+  tokenId     String
+  type        TransactionType
+  fromWallet  String
+  toWallet    String?
+  amount      BigInt?
+  txSignature String
+  status      TransactionStatus @default(PENDING)
+  createdAt   DateTime          @default(now())
+  error       String?
+  token       Token             @relation(fields: [tokenId], references: [id])
+  user        User              @relation(fields: [fromWallet], references: [walletAddress])
+}
+
+enum TokenStatus {
+  ACTIVE
+  PENDING
+  FAILED
+}
+
+enum TransactionType {
+  CREATION
+  TRANSFER
+  MARKET_CREATION
+}
+
+enum TransactionStatus {
+  SUCCESS
+  FAILED
+  PENDING
+}
