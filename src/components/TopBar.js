@@ -32,7 +32,7 @@ export default function TopBar() {
         .then(({ publicKey }) => setWalletAddress(publicKey.toString()))
         .catch(() => {});
     }
-  }, []);
+  }, [setWalletAddress]);
 
   return (
     <>
