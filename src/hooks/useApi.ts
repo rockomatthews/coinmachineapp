@@ -133,7 +133,7 @@ export function useApi() {
     } finally {
       setLoading(false);
     }
-  }, [publicKey, signAndRequest]);
+  }, [publicKey, signAndRequest, setLoading, setError, setUserTokens]);
 
   return {
     loading,
