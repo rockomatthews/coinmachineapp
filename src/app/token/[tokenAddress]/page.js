@@ -11,7 +11,7 @@ export default function TokenPage() {
   
   useEffect(() => {
     // Initialize connection to Solana
-    const rpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+    const rpcUrl = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
     if (rpcUrl) {
       const conn = new Connection(rpcUrl, 'confirmed');
       setConnection(conn);

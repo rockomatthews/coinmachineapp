@@ -61,7 +61,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Buffer } from 'buffer';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
-import { PINATA_JWT, PINATA_GATEWAY_TOKEN } from '../config/apiKeys';
+import { PINATA_JWT } from '../config/apiKeys';
 
 // Fee constants - competitive with Slerf
 const BASE_MINT_FEE = 0.02; // Base fee for token creation
@@ -335,7 +335,7 @@ function CreateCoinForm() {
       const userPublicKey = new PublicKey(walletAddress);
       
       // Using QuickNode exclusively
-      const quicknodeRpcUrl = process.env.NEXT_PUBLIC_SOLANA_RPC_URL;
+      const quicknodeRpcUrl = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
       console.log("Using Solana QuickNode RPC URL exclusively");
       
       const connection = new Connection(
@@ -498,7 +498,6 @@ function CreateCoinForm() {
         TOKEN_PROGRAM_ID
       );
       
-      // Modify the token supply distribution based on the retention percentage
       // Calculate how many tokens to keep for the creator and how many for the bonding curve
       const totalSupply = formData.supply;
       const creatorRetention = Math.floor(totalSupply * (retentionPercentage / 100));
@@ -507,12 +506,92 @@ function CreateCoinForm() {
       console.log(`Creator retention: ${creatorRetention} tokens (${retentionPercentage}%)`);
       console.log(`Bonding curve supply: ${bondingCurveSupply} tokens (${100 - retentionPercentage}%)`);
       
-      // Mint tokens to the associated token account
+      // First create the OpenBook market if requested
+      if (createLiquidityPool) {
+        console.log('Creating OpenBook market for trading...');
+        setStatusUpdate("Creating a liquidity pool for trading (this step may take a while)...");
+        
+        // Define a function to sign transactions with the wallet
+        const signTransaction = async (tx) => window.solana.signTransaction(tx);
+        
+        // Use a minimal fee to improve success rates
+        const poolCreationFee = 10000000; // 0.01 SOL
+        console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for market creation`);
+        
+        try {
+          // First verify the OpenBook program exists on the current network
+          setStatusUpdate("Verifying OpenBook program availability...");
+          
+          // More reliable network detection - check genesis hash instead of cluster nodes
+          // Mainnet has a specific genesis hash we can verify
+          try {
+            const genesisHash = await connection.getGenesisHash();
+            console.log("Network genesis hash:", genesisHash);
+            
+            // Always proceed with market creation - we'll let the OpenBook verification
+            // in listTokenWithOpenBook function determine if the program is available
+            
+            // Since we're using the improved listTokenWithOpenBook function, it will handle program verification
+            setStatusUpdate("Creating OpenBook market and transferring liquidity...");
+            
+            const listingResult = await listTokenWithOpenBook({
+              connection,
+              userPublicKey,
+              mintKeypair,
+              tokenDecimals: 9,
+              tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
+              solAmount: poolCreationFee,
+              signTransaction: signTransaction
+            });
+
+            if (listingResult.success) {
+              console.log("OpenBook market created successfully!");
+              console.log("Market ID:", listingResult.marketId.toString());
+              setStatusUpdate("OpenBook market created successfully!");
+            } else {
+              console.error("OpenBook market creation failed:", listingResult.error);
+              setStatusUpdate(`OpenBook market creation failed: ${listingResult.error}. Your token was still created successfully without a liquidity pool.`);
+              
+              // Don't throw here - we want to continue with token creation even if market fails
+            }
+          } catch (error) {
+            console.error("Error verifying network:", error);
+            setStatusUpdate("Error determining network type. Proceeding with token creation without liquidity pool.");
+            throw new Error("Network verification failed, skipping market creation");
+          }
+        } catch (listingError) {
+          // Check if this is a user rejection/cancellation
+          if (listingError.message && (
+              listingError.message.includes("rejected") || 
+              listingError.message.includes("User rejected") ||
+              listingError.message.includes("cancelled") ||
+              listingError.message.includes("canceled")
+          )) {
+            console.log("User canceled the OpenBook market creation. Continuing with basic token.");
+            setStatusUpdate("Liquidity pool creation was canceled. Your token was still created successfully.");
+          } else if (listingError.message && (
+              listingError.message.includes("program not found") ||
+              listingError.message.includes("does not exist on this network") ||
+              listingError.message.includes("Only available on mainnet")
+          )) {
+            console.warn("OpenBook program not available on this network:", listingError.message);
+            setStatusUpdate("OpenBook program only works on Solana mainnet-beta. Your token was still created successfully.");
+          } else {
+            console.error("Error creating OpenBook market:", listingError.message);
+            setStatusUpdate(`Liquidity pool creation failed: ${listingError.message}. Your token was created successfully, but without a liquidity pool.`);
+          }
+          // Continue without market - token was already created successfully
+        }
+      } else {
+        console.log("Skipping liquidity pool creation as per user preference");
+      }
+      
+      // Now mint tokens to the associated token account (only creator's share)
       const mintToInstruction = createMintToInstruction(
         mintKeypair.publicKey,
         associatedTokenAddress,
         userPublicKey,
-        BigInt(totalSupply * Math.pow(10, 9)), // Mint all tokens to user first
+        BigInt(creatorRetention * Math.pow(10, 9)), // Only mint creator's share
         [],
         TOKEN_PROGRAM_ID
       );
@@ -724,86 +803,6 @@ It will not display properly in wallets without metadata.
         }
       }
 
-      // Only create OpenBook listing if the option is selected
-      if (createLiquidityPool) {
-        console.log('Creating OpenBook market for trading...');
-        setStatusUpdate("Creating a liquidity pool for trading (this step may take a while)...");
-        
-        // Define a function to sign transactions with the wallet
-        const signTransaction = async (tx) => window.solana.signTransaction(tx);
-        
-        // Use a minimal fee to improve success rates
-        const poolCreationFee = 10000000; // 0.01 SOL
-        console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for market creation`);
-        
-        try {
-          // First verify the OpenBook program exists on the current network
-          setStatusUpdate("Verifying OpenBook program availability...");
-          
-          // More reliable network detection - check genesis hash instead of cluster nodes
-          // Mainnet has a specific genesis hash we can verify
-          try {
-            const genesisHash = await connection.getGenesisHash();
-            console.log("Network genesis hash:", genesisHash);
-            
-            // Always proceed with market creation - we'll let the OpenBook verification
-            // in listTokenWithOpenBook function determine if the program is available
-            
-            // Since we're using the improved listTokenWithOpenBook function, it will handle program verification
-            setStatusUpdate("Creating OpenBook market and transferring liquidity...");
-            
-            const listingResult = await listTokenWithOpenBook({
-              connection,
-              userPublicKey,
-              mintKeypair,
-              tokenDecimals: 9,
-              tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
-              solAmount: poolCreationFee,
-              signTransaction: signTransaction
-            });
-
-            if (listingResult.success) {
-              console.log("OpenBook market created successfully!");
-              console.log("Market ID:", listingResult.marketId.toString());
-              setStatusUpdate("OpenBook market created successfully!");
-            } else {
-              console.error("OpenBook market creation failed:", listingResult.error);
-              setStatusUpdate(`OpenBook market creation failed: ${listingResult.error}. Your token was still created successfully without a liquidity pool.`);
-              
-              // Don't throw here - we want to continue with token creation even if market fails
-            }
-          } catch (error) {
-            console.error("Error verifying network:", error);
-            setStatusUpdate("Error determining network type. Proceeding with token creation without liquidity pool.");
-            throw new Error("Network verification failed, skipping market creation");
-          }
-        } catch (listingError) {
-          // Check if this is a user rejection/cancellation
-          if (listingError.message && (
-              listingError.message.includes("rejected") || 
-              listingError.message.includes("User rejected") ||
-              listingError.message.includes("cancelled") ||
-              listingError.message.includes("canceled")
-          )) {
-            console.log("User canceled the OpenBook market creation. Continuing with basic token.");
-            setStatusUpdate("Liquidity pool creation was canceled. Your token was still created successfully.");
-          } else if (listingError.message && (
-              listingError.message.includes("program not found") ||
-              listingError.message.includes("does not exist on this network") ||
-              listingError.message.includes("Only available on mainnet")
-          )) {
-            console.warn("OpenBook program not available on this network:", listingError.message);
-            setStatusUpdate("OpenBook program only works on Solana mainnet-beta. Your token was still created successfully.");
-          } else {
-            console.error("Error creating OpenBook market:", listingError.message);
-            setStatusUpdate(`Liquidity pool creation failed: ${listingError.message}. Your token was created successfully, but without a liquidity pool.`);
-          }
-          // Continue without market - token was already created successfully
-        }
-      } else {
-        console.log("Skipping liquidity pool creation as per user preference");
-      }
-      
       // Collect platform fee regardless of pool creation
       try {
         const platformFee = 20000000; // 0.02 SOL

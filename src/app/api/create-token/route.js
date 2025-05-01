@@ -75,7 +75,7 @@ export async function POST(request) {
     
     try {
       // Connect to Solana
-      const connection = new Connection(process.env.NEXT_PUBLIC_SOLANA_RPC_URL, 'confirmed');
+      const connection = new Connection(process.env.NEXT_PUBLIC_RPC_ENDPOINT, 'confirmed');
       const userPublicKey = new PublicKey(data.walletAddress);
       
       // Generate keypair for the mint

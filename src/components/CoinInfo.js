@@ -48,7 +48,7 @@ const CoinInfo = ({ externalConnection }) => {
           console.warn("No connection available in CoinInfo. Creating a fallback connection.");
           // Create a fallback connection if needed
           const fallbackConnection = new Connection(
-            process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+            process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com',
             'confirmed'
           );
           

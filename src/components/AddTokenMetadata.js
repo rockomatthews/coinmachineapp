@@ -128,7 +128,7 @@ export default function AddTokenMetadata() {
     try {
       // Connect to the blockchain
       const connection = new Connection(
-        process.env.NEXT_PUBLIC_SOLANA_RPC_URL, 
+        process.env.NEXT_PUBLIC_RPC_ENDPOINT, 
         'confirmed'
       );
       

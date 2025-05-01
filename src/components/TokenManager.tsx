@@ -1,17 +1,7 @@
 import { useState } from 'react'
 import { useApi } from '@/hooks/useApi'
 import { useWallet } from '@solana/wallet-adapter-react'
-
-interface Token {
-  id: string
-  name: string
-  symbol: string
-  description: string
-  imageUrl: string
-  totalSupply: bigint
-  decimals: number
-  metadataUri: string
-}
+import type { Token, CreateTransactionParams } from '@/utils/api'
 
 interface NewToken {
   name: string
@@ -54,22 +44,25 @@ export function TokenManager() {
       totalSupply: BigInt(newToken.totalSupply),
       decimals: newToken.decimals,
       metadataUri: '', // This would be set in a real implementation
+      creatorWallet: publicKey.toString(),
     })
 
     if (response.data) {
       const token = response.data as Token
       // Token created successfully
-      const transactionResponse = await createTransaction({
+      const transactionData: CreateTransactionParams = {
         tokenId: token.id,
         type: 'CREATION',
         fromWallet: publicKey.toString(),
         toWallet: publicKey.toString(),
         amount: BigInt(newToken.totalSupply),
         txSignature: 'pending', // This would be the actual transaction signature
-      })
+      }
+      
+      const transactionResponse = await createTransaction(transactionData)
 
       if (transactionResponse.data) {
-        const transaction = transactionResponse.data as { id: string }
+        const transaction = transactionResponse.data
         // Update transaction status after confirmation
         await updateTransaction(
           transaction.id,

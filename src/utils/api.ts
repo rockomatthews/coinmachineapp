@@ -86,14 +86,12 @@ export async function createToken(
     totalSupply: bigint
     decimals: number
     metadataUri: string
+    creatorWallet: string
   }
 ) {
-  return authenticatedApiRequest('/api/tokens', walletAddress, signature, {
+  return authenticatedApiRequest<Token>('/api/tokens', walletAddress, signature, {
     method: 'POST',
-    body: JSON.stringify({
-      ...tokenData,
-      creatorWallet: walletAddress,
-    }),
+    body: JSON.stringify(tokenData),
   })
 }
 
@@ -112,24 +110,49 @@ export async function getUserTokens(walletAddress: string, signature: string) {
   )
 }
 
+export interface Token {
+  id: string
+  mintAddress: string
+  name: string
+  symbol: string
+  description: string
+  imageUrl: string
+  totalSupply: bigint
+  decimals: number
+  metadataUri: string
+  creatorWallet: string
+}
+
 // Transaction API functions
+export interface Transaction {
+  id: string
+  tokenId: string
+  type: 'CREATION' | 'TRANSFER' | 'MARKET_CREATION'
+  fromWallet: string
+  toWallet?: string
+  amount?: bigint
+  txSignature: string
+  status: 'SUCCESS' | 'FAILED' | 'PENDING'
+  error?: string
+}
+
+export interface CreateTransactionParams {
+  tokenId: string
+  type: 'CREATION' | 'TRANSFER' | 'MARKET_CREATION'
+  fromWallet: string
+  toWallet?: string
+  amount?: bigint
+  txSignature: string
+}
+
 export async function createTransaction(
   walletAddress: string,
   signature: string,
-  transactionData: {
-    tokenId: string
-    type: 'CREATION' | 'TRANSFER' | 'MARKET_CREATION'
-    toWallet?: string
-    amount?: bigint
-    txSignature: string
-  }
+  transactionData: CreateTransactionParams
 ) {
-  return authenticatedApiRequest('/api/transactions', walletAddress, signature, {
+  return authenticatedApiRequest<Transaction>('/api/transactions', walletAddress, signature, {
     method: 'POST',
-    body: JSON.stringify({
-      ...transactionData,
-      fromWallet: walletAddress,
-    }),
+    body: JSON.stringify(transactionData),
   })
 }
 
@@ -160,16 +183,4 @@ export async function getUserTransactions(
     signature,
     { method: 'GET' }
   )
-}
-
-export interface Transaction {
-  id: string
-  tokenId: string
-  type: 'CREATION' | 'TRANSFER' | 'MARKET_CREATION'
-  fromWallet: string
-  toWallet?: string
-  amount?: bigint
-  txSignature: string
-  status: 'SUCCESS' | 'FAILED' | 'PENDING'
-  error?: string
 } 
