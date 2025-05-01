@@ -120,7 +120,7 @@ export function useApi() {
     [signAndRequest]
   )
 
-  const fetchUserTokens = useCallback(async () => {
+  const fetchUserTokens = useCallback(async (): Promise<void> => {
     if (!publicKey) return;
     try {
       setLoading(true);
