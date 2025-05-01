@@ -6,6 +6,7 @@ export function useApi() {
   const { publicKey, signMessage } = useWallet()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [userTokens, setUserTokens] = useState<api.ApiResponse<api.Token[]> | null>(null)
 
   const signAndRequest = useCallback(
     async <T>(
@@ -119,6 +120,21 @@ export function useApi() {
     [signAndRequest]
   )
 
+  const fetchUserTokens = useCallback(async () => {
+    if (!publicKey) return;
+    try {
+      setLoading(true);
+      const response = await signAndRequest(api.getUserTokens) as api.ApiResponse<api.Token[]>;
+      if (response && response.data) {
+        setUserTokens(response);
+      }
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to fetch user tokens');
+    } finally {
+      setLoading(false);
+    }
+  }, [publicKey, signAndRequest]);
+
   return {
     loading,
     error,
@@ -130,5 +146,7 @@ export function useApi() {
     createTransaction,
     updateTransaction,
     getUserTransactions,
+    fetchUserTokens,
+    userTokens,
   }
 } 

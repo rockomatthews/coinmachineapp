@@ -16,6 +16,7 @@ import {
   Tooltip,
   Legend
 } from 'chart.js';
+import Image from 'next/image';
 
 ChartJS.register(
   CategoryScale,
@@ -199,10 +200,12 @@ const CoinInfo = ({ externalConnection }) => {
           <Paper sx={{ p: 3 }}>
             <Box display="flex" alignItems="center" gap={2}>
               {tokenInfo.logo && (
-                <img 
-                  src={tokenInfo.logo} 
-                  alt={tokenInfo.name} 
-                  style={{ width: 64, height: 64, borderRadius: '50%' }}
+                <Image
+                  src={tokenInfo.logo}
+                  alt={tokenInfo.name}
+                  width={64}
+                  height={64}
+                  style={{ borderRadius: '50%' }}
                 />
               )}
               <Box>

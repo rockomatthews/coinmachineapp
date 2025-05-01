@@ -167,7 +167,7 @@ export default function StakingPage() {
       </Typography>
       {/* TODO: Implement staking interface for token holders */}
       <Alert severity="info">
-        Staking interface coming soon. You'll be able to:
+        Staking interface coming soon. You&apos;ll be able to:
         <ul>
           <li>View available tokens for staking</li>
           <li>See current APY rates</li>

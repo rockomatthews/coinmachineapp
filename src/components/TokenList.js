@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Typography, Grid, Paper } from '@mui/material';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 const TokenList = () => {
   const router = useRouter();
@@ -29,10 +30,12 @@ const TokenList = () => {
             >
               <Box display="flex" alignItems="center" gap={2}>
                 {token.logo && (
-                  <img 
-                    src={token.logo} 
-                    alt={token.name} 
-                    style={{ width: 48, height: 48, borderRadius: '50%' }}
+                  <Image
+                    src={token.logo}
+                    alt={token.name}
+                    width={40}
+                    height={40}
+                    style={{ borderRadius: '4px' }}
                   />
                 )}
                 <Box>
