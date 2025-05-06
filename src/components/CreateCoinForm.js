@@ -162,6 +162,44 @@ function CreateCoinForm() {
     }
   }, [contextWalletAddress]);
 
+  // Load test parameters if coming from test page
+  useEffect(() => {
+    try {
+      const testParams = localStorage.getItem('testTokenParams');
+      if (testParams) {
+        const parsedParams = JSON.parse(testParams);
+        console.log("Found test token parameters:", parsedParams);
+        
+        // Pre-fill the form with test data
+        setFormData({
+          name: parsedParams.name || '',
+          symbol: parsedParams.symbol || '',
+          supply: parsedParams.supply || 1000000,
+          description: 'Test token created via test page',
+          website: '',
+          twitter: '',
+          telegram: '',
+          discord: '',
+        });
+        
+        // Set retention percentage based on the test parameters
+        if (parsedParams.supply && parsedParams.creatorRetention) {
+          const percentage = Math.round((parsedParams.creatorRetention / parsedParams.supply) * 100);
+          setRetentionPercentage(percentage);
+          
+          // Calculate retention fee based on the percentage
+          const initialFee = calculateRetentionFee(percentage);
+          setRetentionFee(initialFee);
+        }
+        
+        // Clear the test parameters to avoid reusing them unnecessarily
+        localStorage.removeItem('testTokenParams');
+      }
+    } catch (err) {
+      console.warn("Error loading test parameters:", err);
+    }
+  }, []);
+
   // Initialize retention fee on component mount
   useEffect(() => {
     // Initialize retention fee with default percentage
