@@ -8,14 +8,17 @@ export function GET(request: NextRequest) {
   // Create a policy that allows wallet connections but remains secure
   const csp = `
     default-src 'self';
-    script-src 'self' 'unsafe-inline' 'unsafe-eval';
+    script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
     style-src 'self' 'unsafe-inline';
     img-src 'self' data: blob: https: http:;
     font-src 'self';
+    worker-src 'self' blob:;
     connect-src 'self' 
       https://*.solana.com
       https://*.neon.tech
       https://*.rpc.ankr.com
+      https://*.quiknode.pro
+      wss://*.quiknode.pro
       wss://*.solana.com
       https://api.mainnet-beta.solana.com
       https://dweb.link
