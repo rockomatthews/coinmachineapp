@@ -1,52 +1,20 @@
-import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { createToken } from '../../../db/queries';
+import { db } from '../../../db';
+import { tokens } from '../../../db/schema';
+import { and, eq, or } from 'drizzle-orm';
+
+export const runtime = 'edge'
 
 export async function POST(request: Request) {
   try {
-    const {
-      mintAddress,
-      creatorWallet,
-      name,
-      symbol,
-      description,
-      imageUrl,
-      totalSupply,
-      decimals,
-      metadataUri,
-    } = await request.json()
-
-    // Check if token already exists
-    const existingToken = await prisma.token.findUnique({
-      where: { mintAddress },
-    })
-
-    if (existingToken) {
-      return NextResponse.json(
-        { error: 'Token already exists' },
-        { status: 400 }
-      )
-    }
-
-    // Create new token
-    const token = await prisma.token.create({
-      data: {
-        mintAddress,
-        creatorWallet,
-        name,
-        symbol,
-        description,
-        imageUrl,
-        totalSupply: BigInt(totalSupply),
-        decimals,
-        metadataUri,
-      },
-    })
-
+    const body = await request.json()
+    const token = await createToken(body);
     return NextResponse.json(token)
   } catch (error) {
     console.error('Error creating token:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to create token' },
       { status: 500 }
     )
   }
@@ -58,39 +26,28 @@ export async function GET(request: Request) {
     const mintAddress = searchParams.get('mintAddress')
     const creatorWallet = searchParams.get('creatorWallet')
 
+    const conditions = [];
+    
     if (mintAddress) {
-      const token = await prisma.token.findUnique({
-        where: { mintAddress },
-        include: {
-          creator: true,
-          transactions: true,
-        },
-      })
-      return NextResponse.json(token)
+      conditions.push(eq(tokens.mintAddress, mintAddress));
     }
-
+    
     if (creatorWallet) {
-      const tokens = await prisma.token.findMany({
-        where: { creatorWallet },
-        include: {
-          creator: true,
-          transactions: true,
-        },
-      })
-      return NextResponse.json(tokens)
+      conditions.push(eq(tokens.creatorWallet, creatorWallet));
     }
+    
+    const result = await db.query.tokens.findMany({
+      where: conditions.length > 0 ? and(...conditions) : undefined,
+      with: {
+        transactions: true
+      }
+    });
 
-    const tokens = await prisma.token.findMany({
-      include: {
-        creator: true,
-        transactions: true,
-      },
-    })
-    return NextResponse.json(tokens)
+    return NextResponse.json(result)
   } catch (error) {
     console.error('Error fetching tokens:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to fetch tokens' },
       { status: 500 }
     )
   }

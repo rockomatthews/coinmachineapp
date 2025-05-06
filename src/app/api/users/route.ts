@@ -1,14 +1,12 @@
-import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { createUser, getUserByWalletAddress, getAllUsers } from '../../../db/queries';
 
 export async function POST(request: Request) {
   try {
     const { walletAddress, email } = await request.json()
 
     // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { walletAddress },
-    })
+    const existingUser = await getUserByWalletAddress(walletAddress);
 
     if (existingUser) {
       return NextResponse.json(
@@ -18,12 +16,13 @@ export async function POST(request: Request) {
     }
 
     // Create new user
-    const user = await prisma.user.create({
-      data: {
-        walletAddress,
-        email,
-      },
-    })
+    const user = await createUser({
+      walletAddress,
+      email,
+      lastLogin: new Date(),
+      tokensCreated: 0,
+      isVerified: false
+    });
 
     return NextResponse.json(user)
   } catch (error) {
@@ -41,22 +40,11 @@ export async function GET(request: Request) {
     const walletAddress = searchParams.get('walletAddress')
 
     if (walletAddress) {
-      const user = await prisma.user.findUnique({
-        where: { walletAddress },
-        include: {
-          tokens: true,
-          transactions: true,
-        },
-      })
+      const user = await getUserByWalletAddress(walletAddress);
       return NextResponse.json(user)
     }
 
-    const users = await prisma.user.findMany({
-      include: {
-        tokens: true,
-        transactions: true,
-      },
-    })
+    const users = await getAllUsers();
     return NextResponse.json(users)
   } catch (error) {
     console.error('Error fetching users:', error)

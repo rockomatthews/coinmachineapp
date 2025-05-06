@@ -82,7 +82,12 @@ export function useApi() {
     [signAndRequest]
   )
 
-  const getToken = useCallback(api.getToken, [])
+  const getToken = useCallback(
+    async (mintAddress: string) => {
+      return api.getToken(mintAddress)
+    },
+    []
+  )
 
   const getUserTokens = useCallback(
     async () => {
