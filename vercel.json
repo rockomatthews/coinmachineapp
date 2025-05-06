@@ -39,7 +39,5 @@
       "maxDuration": 10
     }
   },
-  "crons": {
-    "version": 2
-  }
+  "crons": []
 } 
