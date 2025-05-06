@@ -78,6 +78,7 @@ const nextConfig = {
               style-src 'self' 'unsafe-inline';
               img-src 'self' data: blob: https: http:;
               font-src 'self';
+              worker-src 'self' blob:;
               connect-src 'self' 
                 https://*.solana.com
                 https://*.neon.tech
