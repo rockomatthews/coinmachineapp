@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run db:generate && next build",
+    "build": "node scripts/setup-migrations.js && npm run db:generate && next build",
     "start": "next start",
     "lint": "next lint",
     "analyze": "ANALYZE=true next build",
@@ -14,7 +14,8 @@
     "migrate": "node scripts/migrate.js",
     "setup:env": "node scripts/create-env.js",
     "setup:schema": "node scripts/create-schema.js",
-    "test:deploy": "node scripts/vercel-deploy-test.js"
+    "test:deploy": "node scripts/vercel-deploy-test.js",
+    "setup:migrations": "node scripts/setup-migrations.js"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
@@ -57,7 +58,8 @@
     "drizzle-kit": "^0.20.14",
     "eslint": "^8.57.0",
     "eslint-config-next": "14.1.0",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
