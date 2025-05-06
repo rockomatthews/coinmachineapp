@@ -598,12 +598,36 @@ function CreateCoinForm() {
           mintBondingCurveTokensTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
           
           console.log("Sending transaction to mint bonding curve tokens...");
+          
+          // Debug: Check token balance before minting bonding curve tokens
+          try {
+            const beforeTokenInfo = await connection.getTokenAccountBalance(associatedTokenAddress);
+            console.log(`User token balance before minting bonding curve: ${beforeTokenInfo.value.uiAmount}`);
+          } catch (balanceError) {
+            console.warn("Error checking token balance before minting:", balanceError.message);
+          }
+          
           const { signature: mintBondingCurveSig } = await window.solana.signAndSendTransaction(mintBondingCurveTokensTx);
           console.log("Bonding curve token mint signature:", mintBondingCurveSig);
           
           try {
             await confirmTransactionWithRetry(connection, mintBondingCurveSig, 'confirmed', 60000);
             console.log("Bonding curve tokens minted successfully!");
+            
+            // Debug: Check token balance after minting bonding curve tokens
+            try {
+              const afterTokenInfo = await connection.getTokenAccountBalance(associatedTokenAddress);
+              console.log(`User token balance after minting bonding curve: ${afterTokenInfo.value.uiAmount}`);
+              console.log(`Expected total: ${(creatorRetention + bondingCurveSupply)}`);
+              
+              // Verify that we actually minted the bonding curve tokens
+              if (afterTokenInfo.value.uiAmount < creatorRetention + bondingCurveSupply) {
+                console.error("⚠️ Minting bonding curve tokens failed - current balance is lower than expected!");
+                throw new Error("Failed to mint the correct amount of tokens for the bonding curve");
+              }
+            } catch (balanceError) {
+              console.warn("Error checking token balance after minting:", balanceError.message);
+            }
           } catch (confirmError) {
             console.warn("Bonding curve token mint confirmation timed out, checking status...");
             const status = await checkTransactionStatus(connection, mintBondingCurveSig);
@@ -642,6 +666,20 @@ function CreateCoinForm() {
             solAmount: poolCreationFee,
             signTransaction: signTransaction
           });
+
+          // Debug: Check token balance after OpenBook market creation
+          try {
+            const finalTokenInfo = await connection.getTokenAccountBalance(associatedTokenAddress);
+            console.log(`User token balance after market creation: ${finalTokenInfo.value.uiAmount}`);
+            console.log(`Expected creator retention: ${creatorRetention}`);
+            
+            // If token amount hasn't changed after market creation, the transfer didn't work
+            if (finalTokenInfo.value.uiAmount === creatorRetention + bondingCurveSupply) {
+              console.error("⚠️ Token transfer to OpenBook market failed - balance unchanged!");
+            }
+          } catch (balanceError) {
+            console.warn("Error checking final token balance:", balanceError.message);
+          }
 
           if (listingResult.success) {
             console.log("OpenBook market created successfully!");
@@ -746,6 +784,56 @@ function CreateCoinForm() {
           // Wait for confirmation with retry logic
           await confirmTransactionWithRetry(connection, metadataSig, 'confirmed', 60000, 3);
           console.log("Metadata created successfully!");
+          
+          // Verify that the metadata account exists and has the correct data
+          try {
+            console.log("Verifying metadata account is properly created...");
+            
+            // Find the metadata account address
+            const [metadataAddress] = await PublicKey.findProgramAddress(
+              [
+                Buffer.from("metadata"),
+                TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+                mintKeypair.publicKey.toBuffer(),
+              ],
+              TOKEN_METADATA_PROGRAM_ID
+            );
+            
+            // Get metadata account info
+            const metadataAccountInfo = await connection.getAccountInfo(metadataAddress);
+            if (!metadataAccountInfo) {
+              console.error("Metadata account not found despite successful transaction!");
+            } else {
+              console.log("Metadata account exists with size:", metadataAccountInfo.data.length);
+              
+              // Verify that the IPFS URI is accessible again - this time with a longer timeout
+              try {
+                console.log("Verifying final IPFS URI is accessible to wallets...");
+                
+                // Use a more reliable method to access the URI
+                const proxyUrl = metadataUri.includes('/ipfs/') 
+                  ? `/api/ipfs/${metadataUri.split('/ipfs/')[1]}`
+                  : metadataUri;
+                
+                // Use a timeout - Phantom needs to be able to access this quickly
+                const fetchPromise = fetch(proxyUrl);
+                const timeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('IPFS URI fetch timeout')), 15000)
+                );
+                
+                const response = await Promise.race([fetchPromise, timeoutPromise]);
+                const metadata = await response.json();
+                
+                console.log("IPFS metadata verified and accessible:", metadata.name);
+              } catch (uriVerificationError) {
+                console.warn("Warning: IPFS URI verification failed:", uriVerificationError.message);
+                console.log("Phantom wallet may have difficulty accessing token metadata");
+              }
+            }
+          } catch (verificationError) {
+            console.warn("Error verifying metadata:", verificationError);
+            // Non-fatal, continue execution
+          }
         } catch (confirmError) {
           console.error("Error confirming metadata transaction:", confirmError);
           // Check if the transaction was actually successful despite confirmation timeout
@@ -909,23 +997,14 @@ It will not display properly in wallets without metadata.
           console.log("Current mint authority status:", mintAuthorityNull ? "Already revoked" : "Active");
           console.log("Current freeze authority status:", freezeAuthorityNull ? "Already revoked" : "Active");
           
-          const advancedOptionsTx = new Transaction();
+          // Important: If user selected to revoke authorities, ensure they are actually revoked
+          // Rather than handling individually, let's create a single transaction to revoke both if needed
+          const revokeAuthoritiesTx = new Transaction();
           
-          // If revoke mint authority is selected and not already revoked, update the mint authority to null
+          // If revoke mint authority is selected and not already revoked, add to transaction
           if (advancedOptions.revokeMintAuthority && !mintAuthorityNull) {
-            console.log("Revoking mint authority...");
-            
-            try {
-              // Double-check if it's already revoked (might have been revoked by OpenBook listing)
-              const updatedMintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
-              if (updatedMintInfo) {
-                const mintData = updatedMintInfo.data;
-                const isNowRevoked = mintData.slice(0, 32).every(byte => byte === 0);
-                if (isNowRevoked) {
-                  console.log("Mint authority already revoked by OpenBook listing, skipping...");
-                } else {
-                  const revokeMintTx = new Transaction();
-                  revokeMintTx.add(
+            console.log("Adding instruction to revoke mint authority...");
+            revokeAuthoritiesTx.add(
               createSetAuthorityInstruction(
                 mintKeypair.publicKey,
                 userPublicKey,
@@ -935,46 +1014,12 @@ It will not display properly in wallets without metadata.
                 TOKEN_PROGRAM_ID
               )
             );
-                  
-                  revokeMintTx.feePayer = userPublicKey;
-                  revokeMintTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-                  
-                  const { signature: revokeMintSig } = await window.solana.signAndSendTransaction(revokeMintTx);
-                  console.log("Revoke mint authority transaction signature:", revokeMintSig);
-                  
-                  // Wait for confirmation
-                  try {
-                    await confirmTransactionWithRetry(connection, revokeMintSig, 'confirmed', 30000, 2);
-                    console.log("Mint authority revoked successfully!");
-                  } catch (confirmError) {
-                    console.warn("Mint authority revocation confirmation failed, but transaction may have succeeded:", confirmError.message);
-                    // Continue execution despite confirmation error
-                  }
-                }
-              }
-            } catch (revokeMintError) {
-              console.error("Error revoking mint authority:", revokeMintError.message);
-              // Continue with other options
-            }
-          } else if (advancedOptions.revokeMintAuthority) {
-            console.log("Mint authority already revoked, skipping...");
           }
           
-          // If revoke freeze authority is selected and not already revoked, update the freeze authority to null
+          // If revoke freeze authority is selected and not already revoked, add to transaction
           if (advancedOptions.revokeFreezeAuthority && !freezeAuthorityNull) {
-            console.log("Revoking freeze authority...");
-            
-            try {
-              // Double-check if it's already revoked (might have been revoked by OpenBook listing)
-              const updatedMintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
-              if (updatedMintInfo) {
-                const mintData = updatedMintInfo.data;
-                const isNowRevoked = mintData.slice(36, 68).every(byte => byte === 0);
-                if (isNowRevoked) {
-                  console.log("Freeze authority already revoked by OpenBook listing, skipping...");
-                } else {
-                  const revokeFreezeTx = new Transaction();
-                  revokeFreezeTx.add(
+            console.log("Adding instruction to revoke freeze authority...");
+            revokeAuthoritiesTx.add(
               createSetAuthorityInstruction(
                 mintKeypair.publicKey,
                 userPublicKey,
@@ -984,29 +1029,43 @@ It will not display properly in wallets without metadata.
                 TOKEN_PROGRAM_ID
               )
             );
-                  
-                  revokeFreezeTx.feePayer = userPublicKey;
-                  revokeFreezeTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-                  
-                  const { signature: revokeFreezeSig } = await window.solana.signAndSendTransaction(revokeFreezeTx);
-                  console.log("Revoke freeze authority transaction signature:", revokeFreezeSig);
-                  
-                  // Wait for confirmation
-                  try {
-                    await confirmTransactionWithRetry(connection, revokeFreezeSig, 'confirmed', 30000, 2);
-                    console.log("Freeze authority revoked successfully!");
-                  } catch (confirmError) {
-                    console.warn("Freeze authority revocation confirmation failed, but transaction may have succeeded:", confirmError.message);
-                    // Continue execution despite confirmation error
-                  }
+          }
+          
+          // If there are any revocation instructions, send the transaction
+          if (revokeAuthoritiesTx.instructions.length > 0) {
+            revokeAuthoritiesTx.feePayer = userPublicKey;
+            revokeAuthoritiesTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+            
+            console.log("Sending transaction to revoke authorities...");
+            const { signature: revokeAuthoritiesSig } = await window.solana.signAndSendTransaction(revokeAuthoritiesTx);
+            console.log("Authority revocation transaction signature:", revokeAuthoritiesSig);
+            
+            try {
+              await confirmTransactionWithRetry(connection, revokeAuthoritiesSig, 'confirmed', 30000);
+              console.log("Token authorities revoked successfully!");
+              
+              // Verify that authorities were actually revoked
+              const updatedMintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
+              if (updatedMintInfo) {
+                const updatedMintAuthorityNull = updatedMintInfo.data.slice(0, 32).every(byte => byte === 0);
+                const updatedFreezeAuthorityNull = updatedMintInfo.data.slice(36, 68).every(byte => byte === 0);
+                
+                console.log("Updated mint authority status:", updatedMintAuthorityNull ? "Revoked" : "Still active");
+                console.log("Updated freeze authority status:", updatedFreezeAuthorityNull ? "Revoked" : "Still active");
+                
+                if (advancedOptions.revokeMintAuthority && !updatedMintAuthorityNull) {
+                  console.warn("Failed to revoke mint authority despite successful transaction!");
+                }
+                
+                if (advancedOptions.revokeFreezeAuthority && !updatedFreezeAuthorityNull) {
+                  console.warn("Failed to revoke freeze authority despite successful transaction!");
                 }
               }
-            } catch (revokeFreezeError) {
-              console.error("Error revoking freeze authority:", revokeFreezeError.message);
-              // Continue with other options
+            } catch (confirmError) {
+              console.warn("Authority revocation transaction confirmation failed, but transaction may have succeeded:", confirmError.message);
             }
-          } else if (advancedOptions.revokeFreezeAuthority) {
-            console.log("Freeze authority already revoked, skipping...");
+          } else {
+            console.log("No authorities need to be revoked - skipping revocation transaction");
           }
           
           // If make immutable is selected, update the metadata account to be immutable
