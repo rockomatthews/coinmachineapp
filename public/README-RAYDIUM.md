@@ -1,86 +1,44 @@
-# Raydium Liquidity Pool Implementation Guide
+# Raydium Integration Guide
+
+This document provides guidance on integrating with Raydium AMM for creating liquidity pools with your tokens.
 
 ## Overview
 
-This document explains how to implement a proper Raydium liquidity pool for your Solana token. The current implementation in the app provides a simplified version that only transfers SOL to a derived address, which is not a real Raydium pool and won't make your token tradable on DEXes.
+Raydium is a decentralized Automated Market Maker (AMM) built on the Solana blockchain. It enables users to create liquidity pools, swap tokens, and provide liquidity to earn rewards.
 
-## Options for Creating a Real Raydium Pool
+## Prerequisites
 
-### Option 1: Use Raydium's UI (Recommended for Most Users)
+- A token created with the Coin Machine platform
+- SOL for transaction fees and initial liquidity
+- Understanding of AMM concepts
 
-The easiest way to create a liquidity pool is through Raydium's official UI:
+## Steps to Create a Liquidity Pool
 
-1. Go to [https://raydium.io/pools/create/](https://raydium.io/pools/create/)
-2. Connect your wallet
-3. Fill in the necessary information:
-   - Select your token
-   - Select SOL or USDC as the pair
-   - Set the initial liquidity amounts
-4. Submit the transaction
+1. Create your token using Coin Machine
+2. Navigate to the Raydium interface
+3. Connect your wallet
+4. Select "Liquidity" > "Create New Pool"
+5. Choose your token and the paired token (SOL, USDC, etc.)
+6. Set your initial liquidity amount
+7. Review and confirm the transaction
 
-This method is recommended for most users as it handles all the complex steps automatically.
+## Tips for Successful Pool Creation
 
-### Option 2: Use the Full Implementation in raydiumPool.js (For Developers)
+- Start with a reasonable amount of liquidity to minimize price impact
+- Consider the initial price carefully - this sets the market value
+- Monitor your pool regularly to adjust liquidity as needed
+- Be aware of impermanent loss risks
 
-Our app includes a more complete implementation in `src/utils/raydiumPool.js` that can create a real Raydium pool programmatically. However, it requires:
+## Integration with Coin Machine
 
-1. Server-side support (you can't sign all required transactions from a browser wallet)
-2. Additional dependencies
-3. Understanding of Raydium and OpenBook architecture
+When creating a token with Coin Machine, you can automatically set up a Raydium liquidity pool by:
 
-To use this implementation:
+1. Toggling the "Create Liquidity Pool" option
+2. Selecting your preferred pair token
+3. Setting your initial liquidity
 
-```javascript
-import { createRaydiumPool } from '@/utils/raydiumPool';
-
-// Example usage
-const result = await createRaydiumPool({
-  connection,
-  userPublicKey,
-  mintKeypair, // Note: You need the keypair, not just the public key
-  tokenDecimals: 9,
-  tokenAmount: BigInt(1000000000 * 10**9), // 1 billion tokens
-  solAmount: 1 * LAMPORTS_PER_SOL, // 1 SOL
-  signTransaction: async (tx) => {
-    // Must be able to sign with the mintKeypair
-    // This requires server-side signing or a secure way to handle the private key
-    return await wallet.signTransaction(tx);
-  }
-});
-```
-
-## Technical Implementation Details
-
-Creating a Raydium pool involves three main steps:
-
-1. **Create an OpenBook (formerly Serum) Market**
-   - This creates the order book and market accounts
-   - Requires multiple account creations and initializations
-
-2. **Create Raydium AMM Accounts**
-   - Sets up all the accounts needed for the AMM
-   - Includes LP token mint, vaults, and authority accounts
-
-3. **Initialize the AMM with Liquidity**
-   - Transfers initial tokens and SOL to the pool
-   - Sets up the initial price and liquidity curve
-
-## Common Issues and Troubleshooting
-
-- **Insufficient funds**: Creating a real Raydium pool requires significantly more SOL than our simplified version (approximately 10-15 SOL for all the accounts)
-- **Transaction errors**: AMM creation involves complex transactions that can fail if not properly structured
-- **Visibility delays**: Even after creating a proper pool, it may take some time for your token to appear in DEX listings
-
-## Resources
-
-- [Raydium SDK Documentation](https://github.com/raydium-io/raydium-sdk-V2)
-- [OpenBook Documentation](https://github.com/openbook-dex/openbook-ts)
-- [Solana SPL Token Documentation](https://spl.solana.com/token)
+The system will guide you through the necessary steps to create both your token and its corresponding liquidity pool.
 
 ## Support
 
-If you need assistance implementing a real Raydium pool, consider:
-
-1. Joining the [Raydium Discord](https://discord.gg/raydium)
-2. Consulting the [Solana Stack Exchange](https://solana.stackexchange.com/)
-3. Hiring a Solana developer with experience in Raydium implementations 
+If you encounter any issues with Raydium integration, please reach out to our support team. 

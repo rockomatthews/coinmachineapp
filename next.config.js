@@ -17,6 +17,26 @@ const nextConfig = {
         hostname: '*.ipfs.dweb.link',
         port: '',
         pathname: '/**',
+      },
+      // Allow images from our IPFS proxy
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/api/ipfs/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'coinmachine.vercel.app',
+        port: '',
+        pathname: '/api/ipfs/**',
+      },
+      // For production domain or other domains you might use
+      {
+        protocol: 'https',
+        hostname: '*.vercel.app',
+        port: '',
+        pathname: '/api/ipfs/**',
       }
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],

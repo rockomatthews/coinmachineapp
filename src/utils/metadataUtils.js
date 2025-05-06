@@ -306,13 +306,28 @@ export function validateAndFormatUri(uri) {
   // Check if the URI is already a valid URL
   try {
     const url = new URL(uri);
+    
+    // If it's an IPFS URL, replace it with our proxy
+    if (url.hostname === 'ipfs.io' || 
+        url.hostname === 'gateway.ipfs.io' || 
+        url.hostname === 'cloudflare-ipfs.com' ||
+        url.hostname === 'ipfs.fleek.co' ||
+        url.hostname.includes('dweb.link')) {
+      
+      // Extract the IPFS path
+      const ipfsPath = url.pathname.replace('/ipfs/', '');
+      return `/api/ipfs/${ipfsPath}`;
+    }
+    
     return url.toString();
   } catch (e) {
     // If it's not a valid URL, assume it's an IPFS hash
     if (uri.startsWith('ipfs://')) {
-      return uri.replace('ipfs://', 'https://ipfs.io/ipfs/');
+      // Use our proxy instead of ipfs.io
+      return uri.replace('ipfs://', '/api/ipfs/');
     } else if (uri.startsWith('Qm') && uri.length >= 46) {
-      return `https://ipfs.io/ipfs/${uri}`;
+      // Use our proxy for raw IPFS CIDs
+      return `/api/ipfs/${uri}`;
     } else {
       return uri;
     }
