@@ -62,6 +62,7 @@ import Image from 'next/image';
 import { Buffer } from 'buffer';
 import { useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { PINATA_JWT } from '../config/apiKeys';
+import { getSafePublicKey, isValidPublicKey } from '@/utils/walletUtils';
 
 // Fee constants - competitive with Slerf
 const BASE_MINT_FEE = 0.02; // Base fee for token creation
@@ -153,14 +154,52 @@ function CreateCoinForm() {
   // Add new state for liquidity pool option
   const [createLiquidityPool, setCreateLiquidityPool] = useState(true);
   
-  const { walletAddress: contextWalletAddress } = useContext(WalletContext) || {};
+  // Get wallet address from context  
+  const { 
+    walletAddress: contextWalletAddress, 
+    connectWallet,
+    isVerified
+  } = useContext(WalletContext) || {};
+  
   const router = useRouter();
   
+  // Update wallet address from context when it changes
   useEffect(() => {
     if (contextWalletAddress) {
+      console.log("Setting wallet address from context:", contextWalletAddress);
       setWalletAddress(contextWalletAddress);
     }
   }, [contextWalletAddress]);
+
+  // Ensure wallet is connected before showing the form
+  useEffect(() => {
+    const checkAndConnectWallet = async () => {
+      // If we don't have a wallet address, try to connect
+      if (!walletAddress && window?.solana?.isPhantom) {
+        console.log("No wallet address found, attempting to connect...");
+        try {
+          // Try connecting to the wallet
+          if (connectWallet) {
+            const address = await connectWallet();
+            if (address) {
+              console.log("Connected wallet from effect:", address);
+            } else {
+              console.warn("Failed to get wallet address from connectWallet()");
+            }
+          } else if (window.solana.isConnected && window.solana.publicKey) {
+            // Fallback if connectWallet isn't available
+            const address = window.solana.publicKey.toString();
+            console.log("Setting wallet from window.solana:", address);
+            setWalletAddress(address);
+          }
+        } catch (err) {
+          console.error("Error auto-connecting wallet:", err);
+        }
+      }
+    };
+    
+    checkAndConnectWallet();
+  }, [walletAddress, connectWallet]);
 
   // Load test parameters if coming from test page
   useEffect(() => {
@@ -357,20 +396,85 @@ function CreateCoinForm() {
       setStatusUpdate("Starting token creation process. This may take up to 2 minutes.");
       console.log("This process may take up to 2 minutes to complete. Please be patient and keep the wallet window open.");
       
-      // Add pre-flight verification
-      if (!window.solana.isConnected) {
+      // Enhanced wallet connection check with retry logic
+      if (!window.solana.isConnected || !walletAddress) {
+        console.log("Wallet not connected or address missing, attempting to connect...");
+        
         try {
-          await window.solana.connect();
-          console.log("Reconnected to wallet");
+          // Try connecting up to 3 times
+          let connected = false;
+          let attempts = 0;
+          
+          while (!connected && attempts < 3) {
+            attempts++;
+            console.log(`Connection attempt ${attempts}/3...`);
+            
+            try {
+              const response = await window.solana.connect();
+              if (response && response.publicKey) {
+                setWalletAddress(response.publicKey.toString());
+                connected = true;
+                console.log("Successfully connected to wallet:", response.publicKey.toString());
+              } else {
+                // Wait a moment before retrying
+                await new Promise(resolve => setTimeout(resolve, 500));
+              }
+            } catch (err) {
+              console.warn(`Connection attempt ${attempts} failed:`, err);
+              // Wait before retry
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+          }
+          
+          if (!connected) {
+            throw new Error("Failed to connect to wallet after multiple attempts");
+          }
         } catch (connectError) {
-          console.error("Failed to reconnect to wallet:", connectError);
-          setError("Failed to connect to your wallet. Please refresh and try again.");
+          console.error("Failed to connect to wallet:", connectError);
+          setError("Failed to connect to your wallet. Please refresh the page and try again.");
           setLoading(false);
           return;
         }
       }
       
-      const userPublicKey = new PublicKey(walletAddress);
+      // Strict wallet address verification
+      if (!walletAddress) {
+        setError("Wallet address is missing. Please reconnect your wallet and try again.");
+        setLoading(false);
+        return;
+      }
+      
+      console.log("Using wallet address:", walletAddress);
+      
+      // Import solana/web3.js here to ensure it's available
+      const { PublicKey } = await import('@solana/web3.js');
+      
+      // Verify the wallet address is a valid public key using our utility
+      if (!isValidPublicKey(walletAddress)) {
+        setError("Invalid wallet address format. Please reconnect your wallet and try again.");
+        setLoading(false);
+        return;
+      }
+      
+      // Use the safe PublicKey utility to create a PublicKey object
+      const userPublicKey = getSafePublicKey(walletAddress, { PublicKey });
+      
+      if (!userPublicKey) {
+        setError("Could not create a valid PublicKey from your wallet address. Please reconnect your wallet and try again.");
+        setLoading(false);
+        return;
+      }
+      
+      // Verify the key is actually valid by attempting to convert to base58
+      try {
+        const keyValidation = userPublicKey.toBase58();
+        console.log("Verified public key:", keyValidation);
+      } catch (keyError) {
+        console.error("Invalid wallet address:", keyError);
+        setError("Invalid wallet address. Please reconnect your wallet and try again.");
+        setLoading(false);
+        return;
+      }
       
       // Using QuickNode exclusively
       const quicknodeRpcUrl = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
