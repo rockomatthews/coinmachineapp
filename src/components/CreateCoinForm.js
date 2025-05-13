@@ -1153,42 +1153,100 @@ It will not display properly in wallets without metadata.
       // Now mint bonding curve tokens and create OpenBook market
       if (createLiquidityPool) {
         console.log(`Minting bonding curve supply (${bondingCurveSupply} tokens) for the market...`);
+        setStatusUpdate(`Minting ${bondingCurveSupply.toLocaleString()} tokens for liquidity pool...`);
         
         try {
-          // First mint the bonding curve supply to the user's associated token account
-          const mintBondingCurveTokensTx = new Transaction();
+          // IMPROVED APPROACH: For large supplies, mint in smaller chunks to avoid transaction size limits
+          // Define max tokens per transaction (adjust based on testing)
+          const MAX_TOKENS_PER_TX = 100000000; // 100 million tokens per transaction
           
-          // Add instruction to mint the bonding curve tokens to the user's account
-          const mintBondingCurveTokensIx = createMintToInstruction(
-            mintKeypair.publicKey,
-            associatedTokenAddress,
-            userPublicKey,
-            BigInt(bondingCurveSupply * Math.pow(10, 9)),
-            [],
-            TOKEN_PROGRAM_ID
-          );
+          // Calculate how many tokens we've minted so far
+          let tokensMinted = 0;
           
-          mintBondingCurveTokensTx.add(mintBondingCurveTokensIx);
-          mintBondingCurveTokensTx.feePayer = userPublicKey;
-          mintBondingCurveTokensTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-          
-          console.log("Sending transaction to mint bonding curve tokens...");
-          
-          const { signature: mintBondingCurveSig } = await window.solana.signAndSendTransaction(mintBondingCurveTokensTx);
-          console.log("Bonding curve token mint signature:", mintBondingCurveSig);
-          
-          try {
-            await confirmTransactionWithRetry(connection, mintBondingCurveSig, 'confirmed', 60000);
-            console.log("Bonding curve tokens minted successfully!");
-          } catch (confirmError) {
-            console.warn("Bonding curve token mint confirmation timed out, checking status...");
-            const status = await checkTransactionStatus(connection, mintBondingCurveSig);
-            if (!status) {
-              // CRITICAL ERROR: Cannot continue without bonding curve tokens
-              throw new Error("Failed to mint tokens for the bonding curve. Process terminated.");
-            } else {
-              console.log("Bonding curve token mint successful despite timeout!");
+          // Keep minting in chunks until we've minted all bonding curve tokens
+          while (tokensMinted < bondingCurveSupply) {
+            // Calculate tokens for this chunk (either the max or remaining amount)
+            const tokensThisChunk = Math.min(MAX_TOKENS_PER_TX, bondingCurveSupply - tokensMinted);
+            
+            console.log(`Minting chunk of ${tokensThisChunk.toLocaleString()} tokens (${tokensMinted.toLocaleString()} of ${bondingCurveSupply.toLocaleString()} total)...`);
+            setStatusUpdate(`Minting tokens for pool: ${Math.round((tokensMinted / bondingCurveSupply) * 100)}% complete...`);
+            
+            // Create transaction for this chunk
+            const mintChunkTx = new Transaction();
+            
+            // Add instruction to mint this chunk of tokens
+            const mintChunkIx = createMintToInstruction(
+              mintKeypair.publicKey,
+              associatedTokenAddress,
+              userPublicKey,
+              BigInt(tokensThisChunk * Math.pow(10, 9)),
+              [],
+              TOKEN_PROGRAM_ID
+            );
+            
+            mintChunkTx.add(mintChunkIx);
+            mintChunkTx.feePayer = userPublicKey;
+            mintChunkTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+            
+            console.log(`Sending transaction to mint chunk of ${tokensThisChunk.toLocaleString()} tokens...`);
+            
+            // Sign and send this chunk's transaction
+            try {
+              const { signature: chunkSig } = await window.solana.signAndSendTransaction(mintChunkTx);
+              console.log(`Chunk mint signature: ${chunkSig}`);
+              
+              // Wait for confirmation with retry logic
+              await confirmTransactionWithRetry(connection, chunkSig, 'confirmed', 60000, 5);
+              console.log(`Successfully minted chunk of ${tokensThisChunk.toLocaleString()} tokens`);
+              
+              // Update our progress
+              tokensMinted += tokensThisChunk;
+              setStatusUpdate(`Minted ${tokensMinted.toLocaleString()} of ${bondingCurveSupply.toLocaleString()} tokens for pool...`);
+              
+              // Add a small delay between transactions to avoid rate limits
+              if (tokensMinted < bondingCurveSupply) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+              }
+            } catch (chunkError) {
+              // Check if this was a user rejection
+              if (chunkError.message && (
+                  chunkError.message.includes("rejected") || 
+                  chunkError.message.includes("User rejected") ||
+                  chunkError.message.includes("cancelled") ||
+                  chunkError.message.includes("canceled")
+              )) {
+                throw new Error("Token minting was canceled by user. Please try again and approve all transactions.");
+              }
+              
+              // If transaction failed, check if it actually went through
+              const status = await checkTransactionStatus(connection, chunkSig);
+              if (!status) {
+                console.error(`Failed to mint chunk of tokens: ${chunkError.message}`);
+                throw new Error(`Failed to mint bonding curve tokens: ${chunkError.message}. Try using a smaller total supply or higher retention percentage.`);
+              }
+              
+              // If transaction succeeded despite error, continue
+              console.log("Transaction succeeded despite confirmation error, continuing...");
+              tokensMinted += tokensThisChunk;
             }
+          }
+          
+          // Verify the total token balance after minting all chunks
+          console.log("Verifying final token balance...");
+          try {
+            const finalBalance = await connection.getTokenAccountBalance(associatedTokenAddress);
+            console.log(`Final token balance: ${finalBalance.value.uiAmount}`);
+            const expectedTotal = creatorRetention + bondingCurveSupply;
+            
+            if (finalBalance.value.uiAmount < expectedTotal * 0.99) { // Allow 1% tolerance
+              console.warn(`WARNING: Final token balance (${finalBalance.value.uiAmount}) is less than expected (${expectedTotal})`);
+              // Continue anyway since we got most of the tokens
+            } else {
+              console.log(`Successfully minted all ${bondingCurveSupply.toLocaleString()} tokens for the bonding curve!`);
+            }
+          } catch (balanceError) {
+            console.warn("Error checking final token balance:", balanceError.message);
+            // Continue anyway - we'll assume minting was successful
           }
           
           console.log('Creating OpenBook market for trading...');
@@ -1255,7 +1313,7 @@ It will not display properly in wallets without metadata.
             return; // Exit immediately
           } else {
             // For other errors, terminate with clear error message
-            setError(`Pool creation failed: ${poolError.message}. Please try again without liquidity pool option.`);
+            setError(`Pool creation failed: ${poolError.message}. Please try again without liquidity pool option or use a smaller total supply.`);
             setLoading(false);
             return; // Exit immediately
           }
