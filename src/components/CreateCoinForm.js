@@ -52,7 +52,6 @@ import axios from 'axios';
 import imageCompression from 'browser-image-compression';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { createRaydiumPool } from '@/utils/raydiumPool';
-import { listTokenWithOpenBook } from '@/utils/openbookPool';
 import { createMetadataTransaction, createVerifyCreatorTransaction, createUpdateMetadataTransaction, validateAndFormatUri } from '@/utils/metadataUtils';
 import Link from 'next/link';
 import BN from 'bn.js';
@@ -1190,9 +1189,13 @@ It will not display properly in wallets without metadata.
             
             console.log(`Sending transaction to mint chunk of ${tokensThisChunk.toLocaleString()} tokens...`);
             
+            // Declare chunkSig outside the try block
+            let chunkSig;
+            
             // Sign and send this chunk's transaction
             try {
-              const { signature: chunkSig } = await window.solana.signAndSendTransaction(mintChunkTx);
+              const result = await window.solana.signAndSendTransaction(mintChunkTx);
+              chunkSig = result.signature;
               console.log(`Chunk mint signature: ${chunkSig}`);
               
               // Wait for confirmation with retry logic
@@ -1218,21 +1221,29 @@ It will not display properly in wallets without metadata.
                 throw new Error("Token minting was canceled by user. Please try again and approve all transactions.");
               }
               
-              // If transaction failed, check if it actually went through
-              const status = await checkTransactionStatus(connection, chunkSig);
-              if (!status) {
-                console.error(`Failed to mint chunk of tokens: ${chunkError.message}`);
-                throw new Error(`Failed to mint bonding curve tokens: ${chunkError.message}. Try using a smaller total supply or higher retention percentage.`);
+              // Only check transaction status if we have a signature
+              if (chunkSig) {
+                // If transaction failed, check if it actually went through
+                const status = await checkTransactionStatus(connection, chunkSig);
+                if (!status) {
+                  console.error(`Failed to mint chunk of tokens: ${chunkError.message}`);
+                  throw new Error(`Failed to mint bonding curve tokens: ${chunkError.message}. Try using a smaller total supply or higher retention percentage.`);
+                }
+                
+                // If transaction succeeded despite error, continue
+                console.log("Transaction succeeded despite confirmation error, continuing...");
+                tokensMinted += tokensThisChunk;
+              } else {
+                // No signature means the transaction didn't even get submitted
+                console.error(`Failed to submit transaction: ${chunkError.message}`);
+                throw new Error(`Failed to create liquidity pool: ${chunkError.message}. Please try again without liquidity pool option or use a smaller total supply.`);
               }
-              
-              // If transaction succeeded despite error, continue
-              console.log("Transaction succeeded despite confirmation error, continuing...");
-              tokensMinted += tokensThisChunk;
             }
           }
           
-          // Verify the total token balance after minting all chunks
+          // Verify the final token balance after minting all chunks
           console.log("Verifying final token balance...");
+          
           try {
             const finalBalance = await connection.getTokenAccountBalance(associatedTokenAddress);
             console.log(`Final token balance: ${finalBalance.value.uiAmount}`);
@@ -1249,7 +1260,7 @@ It will not display properly in wallets without metadata.
             // Continue anyway - we'll assume minting was successful
           }
           
-          console.log('Creating OpenBook market for trading...');
+          console.log('Creating Raydium V3 liquidity pool for trading...');
           setStatusUpdate("Creating a liquidity pool for trading (this step may take a while)...");
           
           // Define a function to sign transactions with the wallet
@@ -1259,42 +1270,31 @@ It will not display properly in wallets without metadata.
           const poolCreationFee = 10000000; // 0.01 SOL
           console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for market creation`);
           
-          // First verify the OpenBook program exists on the current network
-          setStatusUpdate("Verifying OpenBook program availability...");
+          // Create the Raydium V3 liquidity pool using our updated implementation
+          setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
           
-          // More reliable network detection - check genesis hash instead of cluster nodes
-          // Mainnet has a specific genesis hash we can verify
-          const genesisHash = await connection.getGenesisHash();
-          console.log("Network genesis hash:", genesisHash);
-          
-          // Now create the OpenBook market
-          setStatusUpdate("Creating OpenBook market and transferring liquidity...");
-          
-          // IMPORTANT: Pass skipAuthorityRevocation=true to ensure mint authorities 
-          // aren't revoked yet (they've already been used for metadata creation)
-          const listingResult = await listTokenWithOpenBook({
+          const poolResult = await createRaydiumPool({
             connection,
             userPublicKey,
             mintKeypair,
             tokenDecimals: 9,
             tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
             solAmount: poolCreationFee,
-            signTransaction: signTransaction,
-            skipAuthorityRevocation: true // Keep mint authority alive until advanced options
+            signTransaction
           });
           
-          if (!listingResult.success) {
-            // CRITICAL ERROR: Cannot continue without OpenBook market
-            const errorMsg = listingResult.error || "Unknown error creating OpenBook market";
-            console.error("OpenBook market creation failed:", errorMsg);
+          if (!poolResult.success) {
+            // CRITICAL ERROR: Cannot continue without liquidity pool
+            const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
+            console.error("Liquidity pool creation failed:", errorMsg);
             
             // Fail with detailed error message
-            throw new Error(`OpenBook market creation failed: ${errorMsg}. Process terminated - try creating your token without a liquidity pool.`);
+            throw new Error(`Liquidity pool creation failed: ${errorMsg}. Process terminated - try creating your token without a liquidity pool.`);
           }
           
-          console.log("OpenBook market created successfully!");
-          console.log("Market ID:", listingResult.marketId.toString());
-          setStatusUpdate("OpenBook market created successfully!");
+          console.log("Liquidity pool created successfully!");
+          console.log("Pool ID:", poolResult.poolId);
+          setStatusUpdate("Liquidity pool created successfully!");
           
         } catch (poolError) {
           // ALL errors are critical if pool creation is required
@@ -1902,7 +1902,7 @@ View on Birdeye: ${birdeyeUrl}`;
                   />
                 }
                 label={
-                  <Tooltip title="Creates an OpenBook market for your token (same cost as pump.fun & coinfactory). This improves wallet visibility and allows trading.">
+                  <Tooltip title="Creates a Raydium V3 liquidity pool for your token. This improves wallet visibility and allows trading.">
                     <Typography component="div" sx={{ color: 'white' }}>
                       Create Liquidity Pool (+{OPENBOOK_POOL_CREATION_COST} SOL)
                     </Typography>
