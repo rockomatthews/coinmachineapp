@@ -640,7 +640,7 @@ function CreateCoinForm() {
       // Calculate how many tokens to keep for the creator and how many for the bonding curve
       const totalSupply = formData.supply;
       const creatorRetention = Math.floor(totalSupply * (retentionPercentage / 100));
-      const bondingCurveSupply = totalSupply - creatorRetention;
+      let bondingCurveSupply = totalSupply - creatorRetention;
       
       console.log(`Creator retention: ${creatorRetention} tokens (${retentionPercentage}%)`);
       console.log(`Bonding curve supply: ${bondingCurveSupply} tokens (${100 - retentionPercentage}%)`);
