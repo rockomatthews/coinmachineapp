@@ -508,6 +508,16 @@ function CreateCoinForm() {
       // Image and metadata uploads
       setStatusUpdate("Uploading token image and metadata to IPFS...");
       setProgressStep(2);
+      
+      // Define Pinata API endpoint and headers
+      const pinataUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
+      const pinataHeaders = {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          pinata_api_key: process.env.NEXT_PUBLIC_PINATA_API_KEY,
+          pinata_secret_api_key: process.env.NEXT_PUBLIC_PINATA_SECRET_API_KEY,
+        },
+      };
 
       // Step 0: Upload image to IPFS using Pinata (if provided)
       let imageUri = '';
