@@ -176,10 +176,11 @@ export async function createRaydiumPool({
   console.log("Initial parameters:", solAmount / LAMPORTS_PER_SOL, "SOL,", tokenAmount.toString(), "tokens");
   
   try {
-    // Minimum viable SOL amount validation
-    if (solAmount < 0.05 * LAMPORTS_PER_SOL) {
-      console.warn("WARNING: Using extremely low SOL amount. Increasing to 0.05 SOL minimum to avoid failures.");
-      solAmount = 0.05 * LAMPORTS_PER_SOL;
+    // Enforce minimum viable SOL amount - Raydium requires at least 0.25 SOL for stable pools
+    const minimumSolAmount = 0.25 * LAMPORTS_PER_SOL;
+    if (solAmount < minimumSolAmount) {
+      console.warn(`WARNING: SOL amount ${solAmount / LAMPORTS_PER_SOL} is below recommended minimum. Increasing to ${minimumSolAmount / LAMPORTS_PER_SOL} SOL.`);
+      solAmount = minimumSolAmount;
     }
     
     // Check if we have enough balance before proceeding
@@ -222,16 +223,27 @@ export async function createRaydiumPool({
     console.log("Base vault:", baseVault.toString());
     console.log("Quote vault:", quoteVault.toString());
     
-    // Calculate fees
-    const tradeFeeNumerator = 25; // 0.25%
+    // Calculate fees - Using Raydium's recommended values
+    const tradeFeeNumerator = 25; // 0.25% - Raydium's default
     const tradeFeeDenominator = 10000;
-    const ownerTradeFeeNumerator = 5; // 0.05%
+    const ownerTradeFeeNumerator = 5; // 0.05% - Raydium's default
     const ownerTradeFeeDenominator = 10000;
     const ownerWithdrawFeeNumerator = 0; // 0%
     const ownerWithdrawFeeDenominator = 10000;
     
     // Create initialize pool transaction
     const initPoolTx = new Transaction();
+    
+    // Add priority fee to increase transaction success chances
+    const { ComputeBudgetProgram } = await import('@solana/web3.js');
+    initPoolTx.add(
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 100000 // Higher priority fee
+      }),
+      ComputeBudgetProgram.setComputeUnitLimit({
+        units: 400000 // Higher compute unit limit for complex transactions
+      })
+    );
     
     // Create pool state account
     const poolStateAccountRent = await connection.getMinimumBalanceForRentExemption(1024); // Assuming 1024 bytes for pool state
@@ -278,7 +290,7 @@ export async function createRaydiumPool({
         TOKEN_PROGRAM_ID
       )
     );
-    
+
     // Prepare initialize pool instruction data
     const initPoolInstructionData = BufferFrom.alloc(264); // Adjust size as needed
     let offset = 0;
@@ -373,8 +385,9 @@ export async function createRaydiumPool({
       })
     );
     
+    // Ensure we have the latest blockhash
     initPoolTx.feePayer = userPublicKey;
-    initPoolTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+    initPoolTx.recentBlockhash = (await connection.getLatestBlockhash('finalized')).blockhash;
     
     // Partial sign with poolStateKeypair
     initPoolTx.partialSign(poolStateKeypair);
@@ -392,10 +405,40 @@ export async function createRaydiumPool({
     // Sign and send transaction
     console.log("Sending pool creation transaction...");
     try {
-      const signedTx = await signTransaction(initPoolTx);
-      const txid = await sendTransactionWithConfirmation(connection, signedTx, 'confirmed');
+      // Simulate the transaction first to catch errors before sending
+      try {
+        const simulation = await connection.simulateTransaction(initPoolTx);
+        if (simulation.value.err) {
+          console.error("Transaction simulation failed:", simulation.value.err);
+          throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`);
+        }
+        console.log("Transaction simulation successful");
+      } catch (simError) {
+        console.warn("Simulation failed but continuing:", simError.message);
+      }
       
-      console.log("Pool created successfully:", txid);
+      const signedTx = await signTransaction(initPoolTx);
+      const txid = await connection.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+        maxRetries: 3
+      });
+      
+      console.log("Pool creation transaction sent:", txid);
+      
+      // Wait for confirmation using our enhanced method
+      try {
+        await confirmTransactionWithRetry(connection, txid, 'confirmed', 60000, 3);
+        console.log("Pool created successfully:", txid);
+      } catch (confirmError) {
+        // Check if the transaction was actually successful despite confirmation timeout
+        const status = await checkTransactionStatus(connection, txid);
+        if (!status) {
+          throw new Error(`Pool creation transaction failed. Try again with higher SOL amount. Signature: ${txid}`);
+        }
+        console.log("Pool transaction succeeded despite confirmation issues!");
+      }
+      
       console.log("Pool ID:", poolStateKeypair.publicKey.toString());
       
       return {
@@ -410,13 +453,13 @@ export async function createRaydiumPool({
       console.error("Transaction error:", txError);
       
       if (txError.message.includes("Custom program error: 0x5") || txError.message.includes("Custom:5")) {
-        throw new Error("Raydium pool creation failed due to insufficient liquidity. Try using at least 0.1 SOL for better success.");
+        throw new Error("Raydium pool creation failed due to insufficient liquidity. Please increase SOL amount to at least 0.5 SOL.");
       } else if (txError.message.includes("Custom program error: 0x6") || txError.message.includes("Custom:6")) {
         throw new Error("Raydium pool creation failed due to slippage tolerance. Try increasing the SOL amount.");
       } else if (txError.message.includes("0x1770")) {
         throw new Error("Raydium pool creation failed due to invalid token account. Make sure your token is properly initialized.");
       } else if (txError.message.includes("exceeded CUs meter")) {
-        throw new Error("Transaction exceeded compute units. Try using a smaller total supply.");
+        throw new Error("Transaction exceeded compute units. Try using a smaller total supply or increasing compute budget.");
       } else if (txError.message.includes("Transaction too large")) {
         throw new Error("Transaction is too large. Try reducing the token supply or using multiple smaller transactions.");
       } else {

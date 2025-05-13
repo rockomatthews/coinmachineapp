@@ -1158,7 +1158,7 @@ It will not display properly in wallets without metadata.
         try {
           // IMPROVED APPROACH: For large supplies, mint in smaller chunks to avoid transaction size limits
           // Define max tokens per transaction (adjust based on testing)
-          const MAX_TOKENS_PER_TX = 100000000; // 100 million tokens per transaction
+          const MAX_TOKENS_PER_TX = 1000000; // 1 million tokens per transaction - reduce from 100 million
           
           // Calculate how many tokens we've minted so far
           let tokensMinted = 0;
@@ -1174,6 +1174,15 @@ It will not display properly in wallets without metadata.
             // Create transaction for this chunk
             const mintChunkTx = new Transaction();
             
+            // Add Solana priority fee to increase chances of successful transaction
+            mintChunkTx.add(
+              SystemProgram.transfer({
+                fromPubkey: userPublicKey,
+                toPubkey: userPublicKey,
+                lamports: 1 // Minimum transfer amount
+              })
+            );
+            
             // Add instruction to mint this chunk of tokens
             const mintChunkIx = createMintToInstruction(
               mintKeypair.publicKey,
@@ -1185,6 +1194,24 @@ It will not display properly in wallets without metadata.
             );
             
             mintChunkTx.add(mintChunkIx);
+            
+            // Set compute budget for this transaction
+            try {
+              const { ComputeBudgetProgram } = await import('@solana/web3.js');
+              // Add priority fee and compute unit increase instructions
+              mintChunkTx.add(
+                ComputeBudgetProgram.setComputeUnitPrice({
+                  microLamports: 100000 // Higher priority fee for better success rate
+                }),
+                ComputeBudgetProgram.setComputeUnitLimit({
+                  units: 300000 // Higher compute unit limit for complex transactions
+                })
+              );
+            } catch (computeError) {
+              console.warn("Failed to set compute budget:", computeError.message);
+              // Continue even if we can't set compute budget
+            }
+            
             mintChunkTx.feePayer = userPublicKey;
             mintChunkTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
             

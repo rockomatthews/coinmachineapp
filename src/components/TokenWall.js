@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { Box, Typography, Grid, Paper, Avatar, Skeleton, CircularProgress } from '@mui/material';
-import { Connection, PublicKey } from '@solana/web3.js';
 
 export default function TokenWall({ hideHeading = true }) {
   const [tokens, setTokens] = useState([]);
@@ -15,15 +14,31 @@ export default function TokenWall({ hideHeading = true }) {
       setLoading(true);
       
       // Get tokens from localStorage (we'll need to save them there when creating)
-      const savedTokens = localStorage.getItem('createdTokens');
-      if (savedTokens) {
-        const parsedTokens = JSON.parse(savedTokens);
-        setTokens(parsedTokens);
-      }
+      const fetchData = () => {
+        try {
+          const savedTokens = localStorage.getItem('createdTokens');
+          if (savedTokens) {
+            const parsedTokens = JSON.parse(savedTokens);
+            setTokens(parsedTokens);
+          }
+          setLoading(false);
+        } catch (error) {
+          console.error("Error fetching tokens:", error);
+          setError("Failed to load tokens");
+          setLoading(false);
+        }
+      };
       
-      setLoading(false);
+      // Initial load
+      fetchData();
+      
+      // Set up a refresh interval to check for newly created tokens
+      const intervalId = setInterval(fetchData, 5000);
+      
+      // Clean up interval on component unmount
+      return () => clearInterval(intervalId);
     } catch (error) {
-      console.error("Error fetching tokens:", error);
+      console.error("Error setting up token data polling:", error);
       setError("Failed to load tokens");
       setLoading(false);
     }
@@ -103,6 +118,9 @@ export default function TokenWall({ hideHeading = true }) {
                 </Typography>
                 <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px' }}>
                   {token.name}
+                </Typography>
+                <Typography variant="caption" sx={{ display: 'block', color: 'lime', mt: 1 }}>
+                  Created: {new Date(token.createdAt || Date.now()).toLocaleDateString()}
                 </Typography>
               </Paper>
             </Grid>
