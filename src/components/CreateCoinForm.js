@@ -1156,9 +1156,9 @@ It will not display properly in wallets without metadata.
         setProgressStep(5);
         
         try {
-          // IMPROVED APPROACH: For large supplies, mint in smaller chunks to avoid transaction size limits
-          // Define max tokens per transaction (adjust based on testing)
-          const MAX_TOKENS_PER_TX = 1000000; // 1 million tokens per transaction - reduce from 100 million
+          // CRITICAL FIX: Use much smaller chunks and better transaction structure
+          // Define max tokens per transaction - SIGNIFICANTLY reduced to ensure transactions go through
+          const MAX_TOKENS_PER_TX = 100000; // 100k tokens per transaction - extremely reduced from previous 1M
           
           // Calculate how many tokens we've minted so far
           let tokensMinted = 0;
@@ -1168,77 +1168,76 @@ It will not display properly in wallets without metadata.
             // Calculate tokens for this chunk (either the max or remaining amount)
             const tokensThisChunk = Math.min(MAX_TOKENS_PER_TX, bondingCurveSupply - tokensMinted);
             
-            console.log(`Minting chunk of ${tokensThisChunk.toLocaleString()} tokens (${tokensMinted.toLocaleString()} of ${bondingCurveSupply.toLocaleString()} total)...`);
+            console.log(`Minting chunk ${Math.ceil(tokensMinted/MAX_TOKENS_PER_TX) + 1} of ${Math.ceil(bondingCurveSupply/MAX_TOKENS_PER_TX)}: ${tokensThisChunk.toLocaleString()} tokens`);
             setStatusUpdate(`Minting tokens for pool: ${Math.round((tokensMinted / bondingCurveSupply) * 100)}% complete...`);
             
-            // Create transaction for this chunk
+            // Create a separate, clean transaction for each chunk with minimal instructions
             const mintChunkTx = new Transaction();
             
-            // Add Solana priority fee to increase chances of successful transaction
-            mintChunkTx.add(
-              SystemProgram.transfer({
-                fromPubkey: userPublicKey,
-                toPubkey: userPublicKey,
-                lamports: 1 // Minimum transfer amount
-              })
-            );
+            // Add compute budget instructions to increase transaction success rate
+            try {
+              const { ComputeBudgetProgram } = await import('@solana/web3.js');
+              mintChunkTx.add(
+                ComputeBudgetProgram.setComputeUnitPrice({
+                  microLamports: 500000 // Much higher priority fee (5x increase)
+                }),
+                ComputeBudgetProgram.setComputeUnitLimit({
+                  units: 200000 // Set reasonable compute unit limit
+                })
+              );
+            } catch (computeError) {
+              console.warn("Failed to set compute budget:", computeError.message);
+            }
             
-            // Add instruction to mint this chunk of tokens
+            // Just the essential mint instruction - nothing else to reduce transaction size
             const mintChunkIx = createMintToInstruction(
               mintKeypair.publicKey,
               associatedTokenAddress,
               userPublicKey,
-              BigInt(tokensThisChunk * Math.pow(10, 9)),
+              BigInt(tokensThisChunk * Math.pow(10, 9)), // Convert to raw token amount
               [],
               TOKEN_PROGRAM_ID
             );
             
             mintChunkTx.add(mintChunkIx);
             
-            // Set compute budget for this transaction
-            try {
-              const { ComputeBudgetProgram } = await import('@solana/web3.js');
-              // Add priority fee and compute unit increase instructions
-              mintChunkTx.add(
-                ComputeBudgetProgram.setComputeUnitPrice({
-                  microLamports: 100000 // Higher priority fee for better success rate
-                }),
-                ComputeBudgetProgram.setComputeUnitLimit({
-                  units: 300000 // Higher compute unit limit for complex transactions
-                })
-              );
-            } catch (computeError) {
-              console.warn("Failed to set compute budget:", computeError.message);
-              // Continue even if we can't set compute budget
-            }
-            
+            // Get fresh blockhash for each transaction
             mintChunkTx.feePayer = userPublicKey;
-            mintChunkTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            
-            console.log(`Sending transaction to mint chunk of ${tokensThisChunk.toLocaleString()} tokens...`);
+            const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+            mintChunkTx.recentBlockhash = blockhash;
             
             // Declare chunkSig outside the try block
             let chunkSig;
             
             // Sign and send this chunk's transaction
             try {
+              console.log(`Sending transaction to mint chunk of ${tokensThisChunk.toLocaleString()} tokens...`);
               const result = await window.solana.signAndSendTransaction(mintChunkTx);
               chunkSig = result.signature;
-              console.log(`Chunk mint signature: ${chunkSig}`);
+              console.log(`Chunk mint transaction sent: ${chunkSig}`);
               
-              // Wait for confirmation with retry logic
-              await confirmTransactionWithRetry(connection, chunkSig, 'confirmed', 60000, 5);
+              // Wait for confirmation
+              const confirmation = await connection.confirmTransaction({
+                signature: chunkSig,
+                blockhash: blockhash,
+                lastValidBlockHeight: lastValidBlockHeight
+              }, 'confirmed');
+              
+              if (confirmation.value.err) {
+                throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+              }
+              
               console.log(`Successfully minted chunk of ${tokensThisChunk.toLocaleString()} tokens`);
               
-              // Update our progress
+              // Only update progress after successful minting
               tokensMinted += tokensThisChunk;
-              setStatusUpdate(`Minted ${tokensMinted.toLocaleString()} of ${bondingCurveSupply.toLocaleString()} tokens for pool...`);
+              setStatusUpdate(`Minting tokens for pool: ${Math.round((tokensMinted / bondingCurveSupply) * 100)}% complete...`);
               
               // Add a small delay between transactions to avoid rate limits
-              if (tokensMinted < bondingCurveSupply) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
+              await new Promise(resolve => setTimeout(resolve, 1500));
             } catch (chunkError) {
+              console.error(`Error minting chunk: ${chunkError.message}`);
+              
               // Check if this was a user rejection
               if (chunkError.message && (
                   chunkError.message.includes("rejected") || 
@@ -1249,22 +1248,72 @@ It will not display properly in wallets without metadata.
                 throw new Error("Token minting was canceled by user. Please try again and approve all transactions.");
               }
               
-              // Only check transaction status if we have a signature
-              if (chunkSig) {
-                // If transaction failed, check if it actually went through
-                const status = await checkTransactionStatus(connection, chunkSig);
-                if (!status) {
-                  console.error(`Failed to mint chunk of tokens: ${chunkError.message}`);
-                  throw new Error(`Failed to mint bonding curve tokens: ${chunkError.message}. Try using a smaller total supply or higher retention percentage.`);
+              // For transaction errors, let's use a different approach - MINT ALL AT ONCE
+              if (bondingCurveSupply > 100000) {
+                console.log("Chunked minting failed, attempting single transaction with higher retention...");
+                
+                // Let's increase the retention percentage to reduce bonding curve supply
+                // For example, if the retention was 20%, let's raise it to 80%
+                const newRetentionPercentage = Math.min(retentionPercentage + 30, 95);
+                
+                // Recalculate token supply distribution
+                const newCreatorRetention = Math.floor(formData.supply * (newRetentionPercentage / 100));
+                const newBondingCurveSupply = formData.supply - newCreatorRetention;
+                
+                console.log(`Adjusted retention to ${newRetentionPercentage}% - Creator: ${newCreatorRetention}, Bonding curve: ${newBondingCurveSupply}`);
+                
+                // Create a new transaction to mint the entire (smaller) bonding curve supply
+                const singleMintTx = new Transaction();
+                
+                try {
+                  const { ComputeBudgetProgram } = await import('@solana/web3.js');
+                  singleMintTx.add(
+                    ComputeBudgetProgram.setComputeUnitPrice({
+                      microLamports: 1000000 // Very high priority fee
+                    }),
+                    ComputeBudgetProgram.setComputeUnitLimit({
+                      units: 200000
+                    })
+                  );
+                } catch (computeError) {
+                  console.warn("Failed to set compute budget:", computeError.message);
                 }
                 
-                // If transaction succeeded despite error, continue
-                console.log("Transaction succeeded despite confirmation error, continuing...");
-                tokensMinted += tokensThisChunk;
+                singleMintTx.add(
+                  createMintToInstruction(
+                    mintKeypair.publicKey,
+                    associatedTokenAddress,
+                    userPublicKey,
+                    BigInt(newBondingCurveSupply * Math.pow(10, 9)),
+                    [],
+                    TOKEN_PROGRAM_ID
+                  )
+                );
+                
+                const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+                singleMintTx.recentBlockhash = blockhash;
+                singleMintTx.feePayer = userPublicKey;
+                
+                console.log("Sending single transaction with adjusted supply...");
+                const singleResult = await window.solana.signAndSendTransaction(singleMintTx);
+                await connection.confirmTransaction({
+                  signature: singleResult.signature,
+                  blockhash,
+                  lastValidBlockHeight
+                }, 'confirmed');
+                
+                console.log("Successfully minted with adjusted retention ratio");
+                
+                // Update our bonding curve supply to match what we actually minted
+                bondingCurveSupply = newBondingCurveSupply;
+                tokensMinted = newBondingCurveSupply;
+                
+                // Break the loop since we've minted everything
+                break;
               } else {
-                // No signature means the transaction didn't even get submitted
-                console.error(`Failed to submit transaction: ${chunkError.message}`);
-                throw new Error(`Failed to create liquidity pool: ${chunkError.message}. Please try again without liquidity pool option or use a smaller total supply.`);
+                // For small supply, we can just retry with higher fees
+                console.log("Retrying with higher fees...");
+                continue;
               }
             }
           }

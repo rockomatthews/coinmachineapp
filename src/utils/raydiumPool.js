@@ -238,7 +238,7 @@ export async function createRaydiumPool({
     const { ComputeBudgetProgram } = await import('@solana/web3.js');
     initPoolTx.add(
       ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: 100000 // Higher priority fee
+        microLamports: 1000000 // Much higher priority fee for better success chances
       }),
       ComputeBudgetProgram.setComputeUnitLimit({
         units: 400000 // Higher compute unit limit for complex transactions
