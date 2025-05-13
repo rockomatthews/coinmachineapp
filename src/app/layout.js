@@ -6,8 +6,8 @@ import { WalletProvider } from '@/context/WalletContext';
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
-  title: "The Coin Agency",
-  description: "Create, manage, and stake your memecoins",
+  title: "CoinBull.app",
+  description: "Create, manage, and stake your Solana tokens",
 };
 
 export default function RootLayout({ children }) {

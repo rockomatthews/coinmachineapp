@@ -23,7 +23,7 @@ const Logo = ({ height = 500, className }) => {
     >
       <Image
         src="/images/logo.png"
-        alt="Coin Machine Logo"
+        alt="CoinBull Logo"
         width={width}
         height={height}
         priority

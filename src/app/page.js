@@ -16,7 +16,7 @@ export default function HomePage() {
           <Logo height={200} />
         </Box>
         <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'text.secondary' }}>
-          Create and launch your own Solana token in minutes
+          CoinBull.app - Create and launch your own Solana token in minutes
         </Typography>
         <Typography variant="body1" sx={{ mb: 4, color: '#FFD700', fontWeight: 'bold' }}>
           Now with automatic DEX listing! Your token will be tradable on Birdeye and other DEXes instantly.
