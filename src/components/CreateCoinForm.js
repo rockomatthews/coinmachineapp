@@ -68,7 +68,7 @@ const BASE_MINT_FEE = 0.02; // Base fee for token creation
 const ADVANCED_OPTION_FEE = 0.01; // Fee for each advanced option
 
 // Raydium V3 liquidity pool creation costs
-const RAYDIUM_POOL_CREATION_COST = 0.1; // Minimum viable cost (Raydium recommends 4 SOL but smaller pools can work)
+const RAYDIUM_POOL_CREATION_COST = 0.1; // Default cost (users can adjust with slider)
 const ACTUAL_LIQUIDITY = 0.02; // More goes to liquidity
 const LIQUIDITY_PERCENTAGE = 0.4; // 40% goes to liquidity
 
@@ -146,6 +146,9 @@ function CreateCoinForm() {
   
   // Add new state for liquidity pool option
   const [createLiquidityPool, setCreateLiquidityPool] = useState(true);
+  
+  // Add state for liquidity amount
+  const [liquidityAmount, setLiquidityAmount] = useState(0.1);
   
   // Get wallet address from context  
   const { 
@@ -1260,10 +1263,12 @@ It will not display properly in wallets without metadata.
           // Define a function to sign transactions with the wallet
           const signTransaction = async (tx) => window.solana.signTransaction(tx);
           
-          // Use minimal viable amount (below Raydium's 4 SOL recommendation but will work)
-          const poolCreationFee = 0.1 * LAMPORTS_PER_SOL; // 0.1 SOL - minimal viable amount
-          console.log(`Using minimal pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
-          console.log(`NOTE: This is below Raydium's recommended 4 SOL for SOL pairs but will work with higher price impact`);
+          // Use user-selected liquidity amount
+          const poolCreationFee = liquidityAmount * LAMPORTS_PER_SOL; // Use the amount chosen by the user
+          console.log(`Using user-selected pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
+          if (liquidityAmount < 4) {
+            console.log(`NOTE: This is below Raydium's recommended 4 SOL for SOL pairs but will work with higher price impact`);
+          }
           
           // Verify user has enough SOL for Raydium pool creation
           const currentUserBalance = await connection.getBalance(userPublicKey);
@@ -1274,52 +1279,69 @@ It will not display properly in wallets without metadata.
           }
           
           // Create the Raydium V3 liquidity pool using our updated implementation
-          setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
-          
-          const poolResult = await createRaydiumPool({
-            connection,
-            userPublicKey,
-            mintKeypair,
-            tokenDecimals: 9,
-            tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
-            solAmount: poolCreationFee,
-            signTransaction
-          });
-          
-          if (!poolResult.success) {
-            // CRITICAL ERROR: Cannot continue without liquidity pool
-            const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
-            console.error("Liquidity pool creation failed:", errorMsg);
+          try {
+            setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
             
-            // Fail with detailed error message
-            throw new Error(`Liquidity pool creation failed: ${errorMsg}. Process terminated - try creating your token without a liquidity pool.`);
+            const poolResult = await createRaydiumPool({
+              connection,
+              userPublicKey,
+              mintKeypair,
+              tokenDecimals: 9,
+              tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
+              solAmount: poolCreationFee,
+              signTransaction
+            });
+            
+            if (!poolResult.success) {
+              // Detailed error handling
+              const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
+              console.error("Liquidity pool creation failed:", errorMsg);
+              
+              // Provide specific guidance based on error
+              if (errorMsg.includes("Custom:5") || errorMsg.includes("Custom program error: 0x5")) {
+                throw new Error(`Liquidity pool creation failed: Insufficient liquidity. Try increasing the liquidity amount to at least 0.5 SOL.`);
+              } else if (errorMsg.includes("Custom:6") || errorMsg.includes("Custom program error: 0x6")) {
+                throw new Error(`Liquidity pool creation failed: Slippage exceeded. Try using a higher liquidity amount.`);
+              } else if (errorMsg.includes("exceeded CUs meter")) {
+                throw new Error(`Liquidity pool creation failed: Transaction complexity limit exceeded. Try using a smaller token supply or higher retention percentage.`);
+              } else {
+                // Fail with detailed error message
+                throw new Error(`Liquidity pool creation failed: ${errorMsg}. Try increasing liquidity amount or using a smaller total supply.`);
+              }
+            }
+            
+            console.log("Liquidity pool created successfully!");
+            console.log("Pool ID:", poolResult.poolId);
+            setStatusUpdate("Liquidity pool created successfully!");
+            
+          } catch (poolError) {
+            // ALL errors are critical if pool creation is required
+            console.error("Error in pool creation process:", poolError);
+            
+            // Check if this is a user rejection/cancellation - only that is allowed as a non-fatal error
+            if (poolError.message && (
+                poolError.message.includes("rejected") || 
+                poolError.message.includes("User rejected") ||
+                poolError.message.includes("cancelled") ||
+                poolError.message.includes("canceled")
+            )) {
+              console.log("User canceled the pool creation process. Terminating token creation.");
+              setError("Token creation canceled by user during pool creation. Please try again and approve all transactions to complete the process.");
+              setLoading(false);
+              return; // Exit immediately
+            } else {
+              // For other errors, terminate with clear error message
+              setError(`${poolError.message}. Please try again with a higher liquidity amount (${Math.min(liquidityAmount + 0.5, 4)} SOL recommended) or without the liquidity pool option.`);
+              setLoading(false);
+              return; // Exit immediately
+            }
           }
-          
-          console.log("Liquidity pool created successfully!");
-          console.log("Pool ID:", poolResult.poolId);
-          setStatusUpdate("Liquidity pool created successfully!");
-          
-        } catch (poolError) {
-          // ALL errors are critical if pool creation is required
-          console.error("Error in pool creation process:", poolError);
-          
-          // Check if this is a user rejection/cancellation - only that is allowed as a non-fatal error
-          if (poolError.message && (
-              poolError.message.includes("rejected") || 
-              poolError.message.includes("User rejected") ||
-              poolError.message.includes("cancelled") ||
-              poolError.message.includes("canceled")
-          )) {
-            console.log("User canceled the pool creation process. Terminating token creation.");
-            setError("Token creation canceled by user during pool creation. Please try again and approve all transactions to complete the process.");
-            setLoading(false);
-            return; // Exit immediately
-          } else {
-            // For other errors, terminate with clear error message
-            setError(`Pool creation failed: ${poolError.message}. Please try again without liquidity pool option or use a smaller total supply.`);
-            setLoading(false);
-            return; // Exit immediately
-          }
+        } catch (error) {
+          // Handle errors from the entire liquidity pool process
+          console.error("Error creating liquidity pool:", error);
+          setError(`${error.message}`);
+          setLoading(false);
+          return;
         }
       } else {
         console.log("Skipping liquidity pool creation as per user preference");
@@ -2119,6 +2141,50 @@ View on Birdeye: ${birdeyeUrl}`;
                 />
               </Grid>
               
+              {createLiquidityPool && (
+                <Grid item xs={12}>
+                  <Typography component="div" gutterBottom>
+                    Liquidity amount: <strong>{liquidityAmount} SOL</strong>
+                  </Typography>
+                  <Slider
+                    value={liquidityAmount}
+                    onChange={(e, newValue) => setLiquidityAmount(newValue)}
+                    aria-labelledby="liquidity-slider"
+                    step={0.05}
+                    marks={[
+                      { value: 0.05, label: '0.05 SOL' },
+                      { value: 0.5, label: '0.5 SOL' },
+                      { value: 1, label: '1 SOL' },
+                      { value: 2, label: '2 SOL' },
+                      { value: 4, label: '4 SOL' }
+                    ]}
+                    min={0.05}
+                    max={4}
+                    sx={{
+                      color: 'lime',
+                      '& .MuiSlider-thumb': {
+                        backgroundColor: 'lime',
+                      },
+                      '& .MuiSlider-track': {
+                        backgroundColor: 'lime',
+                      },
+                      '& .MuiSlider-rail': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '& .MuiSlider-mark': {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                      },
+                      '& .MuiSlider-markLabel': {
+                        color: 'white',
+                      },
+                    }}
+                  />
+                  <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255, 255, 255, 0.7)', mt: 1 }}>
+                    Higher liquidity = better trading experience but costs more SOL. Raydium recommends 4 SOL for optimal trading.
+                  </Typography>
+                </Grid>
+              )}
+              
               <Grid item xs={12} sm={6}>
                 <TextField
                   label="You Keep"
@@ -2176,11 +2242,11 @@ View on Birdeye: ${birdeyeUrl}`;
               <br />
               {createLiquidityPool && (
                 <>
-                  • Liquidity Pool Creation: {RAYDIUM_POOL_CREATION_COST} SOL
+                  • Liquidity Pool Creation: {createLiquidityPool ? liquidityAmount : RAYDIUM_POOL_CREATION_COST} SOL
                   <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                    (actual rent cost: {RAYDIUM_POOL_RENT.toFixed(4)} SOL - we subsidize the difference)
+                    (includes pool rent ~{RAYDIUM_POOL_RENT.toFixed(4)} SOL)
                   </span>
-                  <br />
+              <br />
                 </>
               )}
               • Supply Retention ({retentionPercentage}%): {retentionFee} SOL

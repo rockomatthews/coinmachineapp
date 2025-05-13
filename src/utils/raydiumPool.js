@@ -176,6 +176,12 @@ export async function createRaydiumPool({
   console.log("Initial parameters:", solAmount / LAMPORTS_PER_SOL, "SOL,", tokenAmount.toString(), "tokens");
   
   try {
+    // Minimum viable SOL amount validation
+    if (solAmount < 0.05 * LAMPORTS_PER_SOL) {
+      console.warn("WARNING: Using extremely low SOL amount. Increasing to 0.05 SOL minimum to avoid failures.");
+      solAmount = 0.05 * LAMPORTS_PER_SOL;
+    }
+    
     // Check if we have enough balance before proceeding
     const userBalance = await connection.getBalance(userPublicKey);
     console.log("User balance:", userBalance / LAMPORTS_PER_SOL, "SOL");
@@ -385,24 +391,43 @@ export async function createRaydiumPool({
     
     // Sign and send transaction
     console.log("Sending pool creation transaction...");
-    const signedTx = await signTransaction(initPoolTx);
-    const txid = await sendTransactionWithConfirmation(connection, signedTx, 'confirmed');
-    
-    console.log("Pool created successfully:", txid);
-    console.log("Pool ID:", poolStateKeypair.publicKey.toString());
-    
-    return {
-      success: true,
-      txid,
-      poolId: poolStateKeypair.publicKey.toString(),
-      baseVault: baseVault.toString(),
-      quoteVault: quoteVault.toString()
-    };
+    try {
+      const signedTx = await signTransaction(initPoolTx);
+      const txid = await sendTransactionWithConfirmation(connection, signedTx, 'confirmed');
+      
+      console.log("Pool created successfully:", txid);
+      console.log("Pool ID:", poolStateKeypair.publicKey.toString());
+      
+      return {
+        success: true,
+        txid,
+        poolId: poolStateKeypair.publicKey.toString(),
+        baseVault: baseVault.toString(),
+        quoteVault: quoteVault.toString()
+      };
+    } catch (txError) {
+      // Handle specific transaction errors with better messages
+      console.error("Transaction error:", txError);
+      
+      if (txError.message.includes("Custom program error: 0x5") || txError.message.includes("Custom:5")) {
+        throw new Error("Raydium pool creation failed due to insufficient liquidity. Try using at least 0.1 SOL for better success.");
+      } else if (txError.message.includes("Custom program error: 0x6") || txError.message.includes("Custom:6")) {
+        throw new Error("Raydium pool creation failed due to slippage tolerance. Try increasing the SOL amount.");
+      } else if (txError.message.includes("0x1770")) {
+        throw new Error("Raydium pool creation failed due to invalid token account. Make sure your token is properly initialized.");
+      } else if (txError.message.includes("exceeded CUs meter")) {
+        throw new Error("Transaction exceeded compute units. Try using a smaller total supply.");
+      } else if (txError.message.includes("Transaction too large")) {
+        throw new Error("Transaction is too large. Try reducing the token supply or using multiple smaller transactions.");
+      } else {
+        throw new Error(txError.message);
+      }
+    }
   } catch (error) {
     console.error("Error creating Raydium V3 pool:", error);
     return {
       success: false,
-      error: error.message
+      error: error.message || "Unknown error creating Raydium pool"
     };
   }
 }
