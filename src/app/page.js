@@ -42,7 +42,7 @@ export default function HomePage() {
       
       <Box sx={{ mb: 6 }}>
         <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
-          Recently Created Tokens
+          🔥Raging Tokens🔥
         </Typography>
         <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
           Check out the latest tokens created by our community
@@ -54,42 +54,20 @@ export default function HomePage() {
 
       <Box sx={{ mb: 6 }}>
         <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
-          Advanced Features
+          Recently Created Tokens
         </Typography>
         <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
-          For developers and experienced token creators
+          See what others are building on Solana
         </Typography>
-        
-        <Grid container spacing={4}>
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" component="h3" gutterBottom>
-                Raydium Liquidity Pool Guide
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 2, flexGrow: 1 }}>
-                Tokens are now automatically listed on DEXes! This guide explains the technical details of how our automatic Raydium liquidity pools work and what to do if you need to add more liquidity.
-              </Typography>
-              <Link href="/README-RAYDIUM.md" passHref>
-                <Button variant="outlined" color="primary">
-                  View Guide
-                </Button>
-              </Link>
-            </Paper>
-          </Grid>
-          <Grid item xs={12} md={6}>
-            <Paper sx={{ p: 3, height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" component="h3" gutterBottom>
-                Token Utilities
-              </Typography>
-              <Typography variant="body2" sx={{ mb: 2, flexGrow: 1 }}>
-                Explore ways to add utility to your token, including governance features, staking rewards, and community engagement tools.
-              </Typography>
-              <Button variant="outlined" color="primary" disabled>
-                Coming Soon
-              </Button>
-            </Paper>
-          </Grid>
-        </Grid>
+        <TokenWall />
+      </Box>
+
+      <Divider sx={{ my: 6 }} />
+
+      <Box sx={{ py: 3, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          Coinbull 3030
+        </Typography>
       </Box>
     </Container>
   );
