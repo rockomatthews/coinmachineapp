@@ -67,28 +67,22 @@ import { getSafePublicKey, isValidPublicKey } from '@/utils/walletUtils';
 const BASE_MINT_FEE = 0.02; // Base fee for token creation
 const ADVANCED_OPTION_FEE = 0.01; // Fee for each advanced option
 
-// OpenBook market creation costs (from OpenBook V2 program)
-const OPENBOOK_POOL_CREATION_COST = 0.05; // Cost for creating OpenBook market (matches pump.fun)
+// Raydium V3 liquidity pool creation costs
+const RAYDIUM_POOL_CREATION_COST = 0.05; // Cost for creating Raydium V3 liquidity pool
 const ACTUAL_LIQUIDITY = 0.02; // More goes to liquidity
 const LIQUIDITY_PERCENTAGE = 0.4; // 40% goes to liquidity
 
-// OpenBook market rent costs - OPTIMIZED LIKE PUMP.FUN
-const OPENBOOK_MARKET_STATE_RENT = 0.00359136; // Market state account (388 bytes)
-const OPENBOOK_REQ_QUEUE_RENT = 0.0054288; // Request queue account (640 bytes)
-const OPENBOOK_EVENT_QUEUE_RENT = 0.01299072; // Event queue account (smaller size)
-const OPENBOOK_BIDS_RENT = 0.01752256; // Bids account (much smaller size)
-const OPENBOOK_ASKS_RENT = 0.01752256; // Asks account (much smaller size)
-const OPENBOOK_BASE_VAULT_RENT = 0.00203928; // Base vault account
-const OPENBOOK_QUOTE_VAULT_RENT = 0.00203928; // Quote vault account
+// Raydium V3 pool rent costs
+const RAYDIUM_POOL_STATE_RENT = 0.00359136; // Pool state account rent
+const RAYDIUM_BASE_VAULT_RENT = 0.00203928; // Base vault account rent
+const RAYDIUM_QUOTE_VAULT_RENT = 0.00203928; // Quote vault account rent
+const RAYDIUM_LP_MINT_RENT = 0.00145856; // LP token mint account rent
 
-// Calculate total OpenBook rent
-const OPENBOOK_RENT = OPENBOOK_MARKET_STATE_RENT +
-  OPENBOOK_REQ_QUEUE_RENT +
-  OPENBOOK_EVENT_QUEUE_RENT +
-  OPENBOOK_BIDS_RENT +
-  OPENBOOK_ASKS_RENT +
-  OPENBOOK_BASE_VAULT_RENT +
-  OPENBOOK_QUOTE_VAULT_RENT;
+// Calculate total Raydium pool rent
+const RAYDIUM_POOL_RENT = RAYDIUM_POOL_STATE_RENT +
+  RAYDIUM_BASE_VAULT_RENT +
+  RAYDIUM_QUOTE_VAULT_RENT +
+  RAYDIUM_LP_MINT_RENT;
 
 const TOKEN_METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
@@ -262,7 +256,7 @@ function CreateCoinForm() {
     
     // Include Raydium pool creation cost only if the option is selected
     if (createLiquidityPool) {
-      fee += OPENBOOK_POOL_CREATION_COST;
+      fee += RAYDIUM_POOL_CREATION_COST;
     }
     
     setBaseFee(fee);
@@ -504,7 +498,7 @@ function CreateCoinForm() {
       const requiredBalance = feeInLamports + (0.01 * LAMPORTS_PER_SOL);
       
       if (userBalance < requiredBalance) {
-        setError(`Insufficient SOL balance. You need at least ${totalFee + 0.01} SOL to create this token, but your wallet has ${(userBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL. The OpenBook market creation requires ${OPENBOOK_POOL_CREATION_COST} SOL for account rent.`);
+        setError(`Insufficient SOL balance. You need at least ${totalFee + 0.01} SOL to create this token, but your wallet has ${(userBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL. The Raydium liquidity pool creation requires ${RAYDIUM_POOL_CREATION_COST} SOL for account rent.`);
         setLoading(false);
         return;
       }
@@ -1268,7 +1262,7 @@ It will not display properly in wallets without metadata.
           
           // Use a minimal fee to improve success rates
           const poolCreationFee = 10000000; // 0.01 SOL
-          console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for market creation`);
+          console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
           
           // Create the Raydium V3 liquidity pool using our updated implementation
           setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
@@ -1375,7 +1369,7 @@ ${formData.twitter ? `- Twitter: ${formData.twitter}` : ''}
 ${formData.telegram ? `- Telegram: ${formData.telegram}` : ''}
 ${formData.discord ? `- Discord: ${formData.discord}` : ''}
 ${advancedOptions.makeImmutable ? '- Token has been permanently made immutable' : ''}
-${createLiquidityPool ? '- Liquidity pool has been created on OpenBook' : '- No liquidity pool was created (you can create one later)'}
+${createLiquidityPool ? '- Liquidity pool has been created with Raydium V3' : '- No liquidity pool was created (you can create one later)'}
 
 Visibility Status:
 - ✅ Your token has been fully verified with creator signature
@@ -1904,7 +1898,7 @@ View on Birdeye: ${birdeyeUrl}`;
                 label={
                   <Tooltip title="Creates a Raydium V3 liquidity pool for your token. This improves wallet visibility and allows trading.">
                     <Typography component="div" sx={{ color: 'white' }}>
-                      Create Liquidity Pool (+{OPENBOOK_POOL_CREATION_COST} SOL)
+                      Create Liquidity Pool (+{RAYDIUM_POOL_CREATION_COST} SOL)
                     </Typography>
                   </Tooltip>
                 }
@@ -1922,9 +1916,9 @@ View on Birdeye: ${birdeyeUrl}`;
                 <br />
                 {createLiquidityPool && (
                   <>
-                    • Liquidity Pool Creation: <strong>{OPENBOOK_POOL_CREATION_COST.toFixed(4)} SOL</strong> 
+                    • Liquidity Pool Creation: <strong>{RAYDIUM_POOL_CREATION_COST.toFixed(4)} SOL</strong> 
                 <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                      (actual rent cost: {OPENBOOK_RENT.toFixed(4)} SOL - we subsidize the difference)
+                      (actual rent cost: {RAYDIUM_POOL_RENT.toFixed(4)} SOL - we subsidize the difference)
                 </span>
                 <br />
                   </>
