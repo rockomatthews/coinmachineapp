@@ -1,0 +1,18 @@
+{
+  "name": "CoinBull",
+  "domain": "coinbull.app",
+  "verification": "05232024",
+  "version": "1.0.0",
+  "description": "Create and launch your own Solana token in minutes",
+  "logo": "https://www.coinbull.app/images/logo.png",
+  "website": "https://www.coinbull.app",
+  "twitter": "",
+  "support_contact": "support@coinbull.app",
+  "security_contact": "security@coinbull.app",
+  "permissions": [
+    "connect",
+    "sign_transaction",
+    "sign_message"
+  ],
+  "approved": true
+} 
