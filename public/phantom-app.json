@@ -1,0 +1,30 @@
+{
+  "name": "CoinBull",
+  "short_name": "CoinBull Token Creator",
+  "description": "Create Solana tokens instantly with automatic DEX listing",
+  "icons": [
+    {
+      "src": "/images/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#000000",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "phantom": {
+    "verification": "05232024",
+    "domain": "coinbull.app",
+    "security_contact": "security@coinbull.app",
+    "token_permissions": true,
+    "verified": true,
+    "permissions": [
+      "create_token",
+      "transfer",
+      "sign_message"
+    ]
+  }
+} 

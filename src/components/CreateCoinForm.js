@@ -1008,6 +1008,213 @@ function CreateCoinForm() {
         // Wait for confirmation
         await confirmTransactionWithRetry(connection, verifySig, 'confirmed', 30000, 2);
           console.log("Creator verified successfully!");
+
+        // The metadata is now created, proceed to apply advanced options AFTER metadata creation:
+        
+        // Apply advanced options if selected
+        if (advancedOptions.revokeMintAuthority || advancedOptions.revokeFreezeAuthority || advancedOptions.makeImmutable) {
+          console.log("Applying advanced options...");
+          setStatusUpdate("Applying advanced token security options...");
+          setProgressStep(5);
+          
+          try {
+            // Check if the mint and freeze authorities are already revoked by reading the mint account
+            const mintInfoAccount = await connection.getAccountInfo(mintKeypair.publicKey);
+            if (!mintInfoAccount) {
+              throw new Error("Could not find mint account");
+            }
+            
+            // Simple check - we know the authority fields are in the first few bytes
+            const isAuthorityNull = (offset) => {
+              // Check if the 32 bytes at this offset are all zeros (indicating null)
+              const authorityBytes = mintInfoAccount.data.slice(offset, offset + 32);
+              return authorityBytes.every(byte => byte === 0);
+            };
+            
+            const mintAuthorityNull = isAuthorityNull(0); // Mint authority is at the beginning
+            const freezeAuthorityNull = isAuthorityNull(36); // Freeze authority is after mint authority (4 bytes for option)
+            
+            console.log("Current mint authority status:", mintAuthorityNull ? "Already revoked" : "Active");
+            console.log("Current freeze authority status:", freezeAuthorityNull ? "Already revoked" : "Active");
+            
+            // Important: If user selected to revoke authorities, ensure they are actually revoked
+            // Rather than handling individually, let's create a single transaction to revoke both if needed
+            const revokeAuthoritiesTx = new Transaction();
+            
+            // If revoke mint authority is selected and not already revoked, add to transaction
+            if (advancedOptions.revokeMintAuthority && !mintAuthorityNull) {
+              console.log("Adding instruction to revoke mint authority...");
+              revokeAuthoritiesTx.add(
+                createSetAuthorityInstruction(
+                  mintKeypair.publicKey,
+                  userPublicKey,
+                  AuthorityType.MintTokens,
+                  null, // Setting to null revokes the authority
+                  [],
+                  TOKEN_PROGRAM_ID
+                )
+              );
+            }
+            
+            // If revoke freeze authority is selected and not already revoked, add to transaction
+            if (advancedOptions.revokeFreezeAuthority && !freezeAuthorityNull) {
+              console.log("Adding instruction to revoke freeze authority...");
+              revokeAuthoritiesTx.add(
+                createSetAuthorityInstruction(
+                  mintKeypair.publicKey,
+                  userPublicKey,
+                  AuthorityType.FreezeAccount,
+                  null, // Setting to null revokes the authority
+                  [],
+                  TOKEN_PROGRAM_ID
+                )
+              );
+            }
+            
+            // If there are any revocation instructions, send the transaction
+            if (revokeAuthoritiesTx.instructions.length > 0) {
+              revokeAuthoritiesTx.feePayer = userPublicKey;
+              revokeAuthoritiesTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+              
+              console.log("Sending transaction to revoke authorities...");
+              const { signature: revokeAuthoritiesSig } = await window.solana.signAndSendTransaction(revokeAuthoritiesTx);
+              console.log("Authority revocation transaction signature:", revokeAuthoritiesSig);
+              
+              try {
+                await confirmTransactionWithRetry(connection, revokeAuthoritiesSig, 'confirmed', 30000);
+                console.log("Token authorities revoked successfully!");
+                
+                // Verify that authorities were actually revoked
+                const updatedMintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
+                if (updatedMintInfo) {
+                  const updatedMintAuthorityNull = updatedMintInfo.data.slice(0, 32).every(byte => byte === 0);
+                  const updatedFreezeAuthorityNull = updatedMintInfo.data.slice(36, 68).every(byte => byte === 0);
+                  
+                  console.log("Updated mint authority status:", updatedMintAuthorityNull ? "Revoked" : "Still active");
+                  console.log("Updated freeze authority status:", updatedFreezeAuthorityNull ? "Revoked" : "Still active");
+                  
+                  if (advancedOptions.revokeMintAuthority && !updatedMintAuthorityNull) {
+                    console.warn("Failed to revoke mint authority despite successful transaction!");
+                  }
+                  
+                  if (advancedOptions.revokeFreezeAuthority && !updatedFreezeAuthorityNull) {
+                    console.warn("Failed to revoke freeze authority despite successful transaction!");
+                  }
+                }
+              } catch (confirmError) {
+                console.warn("Authority revocation transaction confirmation failed, but transaction may have succeeded:", confirmError.message);
+              }
+            } else {
+              console.log("No authorities need to be revoked - skipping revocation transaction");
+            }
+            
+            // If make immutable is selected, update the metadata account to be immutable
+            if (advancedOptions.makeImmutable) {
+              console.log("Making token metadata immutable...");
+              
+              try {
+                // Find the metadata account address
+                const [metadataAddress] = await PublicKey.findProgramAddress(
+                  [
+                    Buffer.from("metadata"),
+                    TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+                    mintKeypair.publicKey.toBuffer(),
+                  ],
+                  TOKEN_METADATA_PROGRAM_ID
+                );
+                
+                console.log("Metadata address:", metadataAddress.toString());
+                
+                // Create a new update authority - set to null to make it immutable
+                const newUpdateAuthority = null;
+                
+                // Using a simpler approach - create a very minimal UpdateMetadata instruction
+                // Instruction layout: [1 (discriminator), 0 (data option), 1 (update authority option), 0 (primary sale option)]
+                const buffer = Buffer.from([1, 0, 1, 0]); 
+                
+                // Add the instruction with minimal data - only indicating we're updating the update authority
+                const immutableIx = new TransactionInstruction({
+                  keys: [
+                    { pubkey: metadataAddress, isSigner: false, isWritable: true },
+                    { pubkey: userPublicKey, isSigner: true, isWritable: false },
+                  ],
+                  programId: TOKEN_METADATA_PROGRAM_ID,
+                  data: buffer
+                });
+                
+                // Create a transaction 
+                const makeImmutableTx = new Transaction().add(immutableIx);
+                makeImmutableTx.feePayer = userPublicKey;
+                makeImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+                
+                // Sign and send the transaction
+                try {
+                  const { signature: immutableSig } = await window.solana.signAndSendTransaction(makeImmutableTx);
+                  console.log("Immutable transaction signature:", immutableSig);
+                  
+                  try {
+                    // Confirm transaction
+                    await confirmTransactionWithRetry(connection, immutableSig, 'confirmed', 30000, 2);
+                    console.log("Token metadata made immutable successfully");
+                  } catch (confirmError) {
+                    console.warn("Immutable transaction confirmation error:", confirmError.message);
+                    console.log("Transaction may still succeed, continuing with process");
+                  }
+                } catch (txError) {
+                  // If user rejects, that's ok - token is still created
+                  console.warn("Failed to make metadata immutable:", txError.message);
+                  if (txError.message && (
+                    txError.message.includes("rejected") || 
+                    txError.message.includes("cancelled") ||
+                    txError.message.includes("canceled")
+                  )) {
+                    console.log("User rejected immutable transaction - continuing with process");
+                  } else {
+                    // For technical errors, we can try an alternate approach with different parameters
+                    console.log("Attempting alternate approach for making metadata immutable...");
+                    try {
+                      // Just try with simpler data - only the instruction discriminator
+                      const simpleBuffer = Buffer.from([1]);
+                      
+                      const simpleImmutableIx = new TransactionInstruction({
+                        keys: [
+                          { pubkey: metadataAddress, isSigner: false, isWritable: true },
+                          { pubkey: userPublicKey, isSigner: true, isWritable: false },
+                        ],
+                        programId: TOKEN_METADATA_PROGRAM_ID,
+                        data: simpleBuffer
+                      });
+                      
+                      const simpleImmutableTx = new Transaction().add(simpleImmutableIx);
+                      simpleImmutableTx.feePayer = userPublicKey;
+                      simpleImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+                      
+                      const { signature: simpleImmutableSig } = await window.solana.signAndSendTransaction(simpleImmutableTx);
+                      console.log("Simple immutable transaction signature:", simpleImmutableSig);
+                      
+                      try {
+                        await confirmTransactionWithRetry(connection, simpleImmutableSig, 'confirmed', 30000, 2);
+                        console.log("Token metadata made immutable (alternate approach succeeded)");
+                      } catch (altConfirmError) {
+                        console.warn("Alternate immutable transaction confirmation error:", altConfirmError.message);
+                      }
+                    } catch (altError) {
+                      console.warn("Alternate approach also failed:", altError.message);
+                      console.log("Continuing with process - token is still functional");
+                    }
+                  }
+                }
+              } catch (metaplexError) {
+                console.error("Error making token metadata immutable:", metaplexError.message);
+                console.warn("Continuing with token creation despite metadata immutability error");
+                // Continue execution - token is still created
+              }
+            }
+          } catch (advancedOptionsError) {
+            console.error("Error applying advanced options:", advancedOptionsError.message);
+            // Continue execution since the token itself was created successfully
+          }
+        }
       } catch (metadataError) {
         console.error("Error creating token metadata:", metadataError);
         console.error("Error details:", metadataError);
@@ -1048,6 +1255,9 @@ It will not display properly in wallets without metadata.
           return; // Stop the process here - don't proceed with liquidity pool
         }
       }
+
+      // Move platform fee collection here, after metadata is complete
+      // ... rest of the code ...
 
       // Collect platform fee regardless of pool creation
       try {
@@ -1111,257 +1321,6 @@ It will not display properly in wallets without metadata.
       } catch (localStorageError) {
         console.error("Non-critical error saving token to localStorage:", localStorageError);
         // Don't fail the process if localStorage fails
-      }
-
-      // Apply advanced options if selected
-      if (advancedOptions.revokeMintAuthority || advancedOptions.revokeFreezeAuthority || advancedOptions.makeImmutable) {
-        console.log("Applying advanced options...");
-        setStatusUpdate("Applying advanced token security options...");
-        setProgressStep(5);
-        
-        try {
-          // Check if the mint and freeze authorities are already revoked by reading the mint account
-          const mintInfoAccount = await connection.getAccountInfo(mintKeypair.publicKey);
-          if (!mintInfoAccount) {
-            throw new Error("Could not find mint account");
-          }
-          
-          // Simple check - we know the authority fields are in the first few bytes
-          const isAuthorityNull = (offset) => {
-            // Check if the 32 bytes at this offset are all zeros (indicating null)
-            const authorityBytes = mintInfoAccount.data.slice(offset, offset + 32);
-            return authorityBytes.every(byte => byte === 0);
-          };
-          
-          const mintAuthorityNull = isAuthorityNull(0); // Mint authority is at the beginning
-          const freezeAuthorityNull = isAuthorityNull(36); // Freeze authority is after mint authority (4 bytes for option)
-          
-          console.log("Current mint authority status:", mintAuthorityNull ? "Already revoked" : "Active");
-          console.log("Current freeze authority status:", freezeAuthorityNull ? "Already revoked" : "Active");
-          
-          // Important: If user selected to revoke authorities, ensure they are actually revoked
-          // Rather than handling individually, let's create a single transaction to revoke both if needed
-          const revokeAuthoritiesTx = new Transaction();
-          
-          // If revoke mint authority is selected and not already revoked, add to transaction
-          if (advancedOptions.revokeMintAuthority && !mintAuthorityNull) {
-            console.log("Adding instruction to revoke mint authority...");
-            revokeAuthoritiesTx.add(
-              createSetAuthorityInstruction(
-                mintKeypair.publicKey,
-                userPublicKey,
-                AuthorityType.MintTokens,
-                null, // Setting to null revokes the authority
-                [],
-                TOKEN_PROGRAM_ID
-              )
-            );
-          }
-          
-          // If revoke freeze authority is selected and not already revoked, add to transaction
-          if (advancedOptions.revokeFreezeAuthority && !freezeAuthorityNull) {
-            console.log("Adding instruction to revoke freeze authority...");
-            revokeAuthoritiesTx.add(
-              createSetAuthorityInstruction(
-                mintKeypair.publicKey,
-                userPublicKey,
-                AuthorityType.FreezeAccount,
-                null, // Setting to null revokes the authority
-                [],
-                TOKEN_PROGRAM_ID
-              )
-            );
-          }
-          
-          // If there are any revocation instructions, send the transaction
-          if (revokeAuthoritiesTx.instructions.length > 0) {
-            revokeAuthoritiesTx.feePayer = userPublicKey;
-            revokeAuthoritiesTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            
-            console.log("Sending transaction to revoke authorities...");
-            const { signature: revokeAuthoritiesSig } = await window.solana.signAndSendTransaction(revokeAuthoritiesTx);
-            console.log("Authority revocation transaction signature:", revokeAuthoritiesSig);
-            
-            try {
-              await confirmTransactionWithRetry(connection, revokeAuthoritiesSig, 'confirmed', 30000);
-              console.log("Token authorities revoked successfully!");
-              
-              // Verify that authorities were actually revoked
-              const updatedMintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
-              if (updatedMintInfo) {
-                const updatedMintAuthorityNull = updatedMintInfo.data.slice(0, 32).every(byte => byte === 0);
-                const updatedFreezeAuthorityNull = updatedMintInfo.data.slice(36, 68).every(byte => byte === 0);
-                
-                console.log("Updated mint authority status:", updatedMintAuthorityNull ? "Revoked" : "Still active");
-                console.log("Updated freeze authority status:", updatedFreezeAuthorityNull ? "Revoked" : "Still active");
-                
-                if (advancedOptions.revokeMintAuthority && !updatedMintAuthorityNull) {
-                  console.warn("Failed to revoke mint authority despite successful transaction!");
-                }
-                
-                if (advancedOptions.revokeFreezeAuthority && !updatedFreezeAuthorityNull) {
-                  console.warn("Failed to revoke freeze authority despite successful transaction!");
-                }
-              }
-            } catch (confirmError) {
-              console.warn("Authority revocation transaction confirmation failed, but transaction may have succeeded:", confirmError.message);
-            }
-          } else {
-            console.log("No authorities need to be revoked - skipping revocation transaction");
-          }
-          
-          // If make immutable is selected, update the metadata account to be immutable
-          if (advancedOptions.makeImmutable) {
-            console.log("Making token metadata immutable...");
-            
-            try {
-              // Find the metadata account address
-              const [metadataAddress] = await PublicKey.findProgramAddress(
-                [
-                  Buffer.from("metadata"),
-                  TOKEN_METADATA_PROGRAM_ID.toBuffer(),
-                  mintKeypair.publicKey.toBuffer(),
-                ],
-                TOKEN_METADATA_PROGRAM_ID
-              );
-              
-              console.log("Metadata address:", metadataAddress.toString());
-              
-              // Create a new update authority - set to null to make it immutable
-              const newUpdateAuthority = null;
-              
-              // Using a simpler approach - create a very minimal UpdateMetadata instruction
-              // Instruction layout: [1 (discriminator), 0 (data option), 1 (update authority option), 0 (primary sale option)]
-              const buffer = Buffer.from([1, 0, 1, 0]); 
-              
-              // Add the instruction with minimal data - only indicating we're updating the update authority
-              const immutableIx = new TransactionInstruction({
-                keys: [
-                  { pubkey: metadataAddress, isSigner: false, isWritable: true },
-                  { pubkey: userPublicKey, isSigner: true, isWritable: false },
-                ],
-                programId: TOKEN_METADATA_PROGRAM_ID,
-                data: buffer
-              });
-              
-              // Create a transaction 
-              const makeImmutableTx = new Transaction().add(immutableIx);
-              makeImmutableTx.feePayer = userPublicKey;
-              makeImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-              
-              // Sign and send the transaction
-              try {
-                const { signature: immutableSig } = await window.solana.signAndSendTransaction(makeImmutableTx);
-                console.log("Immutable transaction signature:", immutableSig);
-                
-                try {
-                  // Confirm transaction
-                  await confirmTransactionWithRetry(connection, immutableSig, 'confirmed', 30000, 2);
-                  console.log("Token metadata made immutable successfully");
-                } catch (confirmError) {
-                  console.warn("Immutable transaction confirmation error:", confirmError.message);
-                  console.log("Transaction may still succeed, continuing with process");
-                }
-              } catch (txError) {
-                // If user rejects, that's ok - token is still created
-                console.warn("Failed to make metadata immutable:", txError.message);
-                if (txError.message && (
-                  txError.message.includes("rejected") || 
-                  txError.message.includes("cancelled") ||
-                  txError.message.includes("canceled")
-                )) {
-                  console.log("User rejected immutable transaction - continuing with process");
-                } else {
-                  // For technical errors, we can try an alternate approach with different parameters
-                  console.log("Attempting alternate approach for making metadata immutable...");
-                  try {
-                    // Just try with simpler data - only the instruction discriminator
-                    const simpleBuffer = Buffer.from([1]);
-                    
-                    const simpleImmutableIx = new TransactionInstruction({
-                      keys: [
-                        { pubkey: metadataAddress, isSigner: false, isWritable: true },
-                        { pubkey: userPublicKey, isSigner: true, isWritable: false },
-                      ],
-                      programId: TOKEN_METADATA_PROGRAM_ID,
-                      data: simpleBuffer
-                    });
-                    
-                    const simpleImmutableTx = new Transaction().add(simpleImmutableIx);
-                    simpleImmutableTx.feePayer = userPublicKey;
-                    simpleImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-                    
-                    const { signature: simpleImmutableSig } = await window.solana.signAndSendTransaction(simpleImmutableTx);
-                    console.log("Simple immutable transaction signature:", simpleImmutableSig);
-                    
-                    try {
-                      await confirmTransactionWithRetry(connection, simpleImmutableSig, 'confirmed', 30000, 2);
-                      console.log("Token metadata made immutable (alternate approach succeeded)");
-                    } catch (altConfirmError) {
-                      console.warn("Alternate immutable transaction confirmation error:", altConfirmError.message);
-                    }
-                  } catch (altError) {
-                    console.warn("Alternate approach also failed:", altError.message);
-                    console.log("Continuing with process - token is still functional");
-                  }
-                }
-              }
-            } catch (metaplexError) {
-              console.error("Error making token metadata immutable:", metaplexError.message);
-              console.warn("Continuing with token creation despite metadata immutability error");
-              // Continue execution - token is still created
-            }
-          }
-          
-          // Only send the advancedOptionsTx if there are any instructions left to process
-          // (Most should now be handled by individual transactions above)
-          if (advancedOptionsTx.instructions.length > 0) {
-            console.log("Sending remaining advanced options transaction...");
-            
-            advancedOptionsTx.feePayer = userPublicKey;
-            advancedOptionsTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            
-            try {
-              const { signature: advancedOptionsSig } = await window.solana.signAndSendTransaction(advancedOptionsTx);
-              console.log("Advanced options transaction signature:", advancedOptionsSig);
-              
-              try {
-                await confirmTransactionWithRetry(connection, advancedOptionsSig, 'confirmed', 60000);
-                console.log("Advanced options transaction confirmed successfully!");
-            } catch (confirmError) {
-                console.warn("Advanced options transaction confirmation timed out, checking status...");
-              
-                // If initial confirmation fails, check if the transaction actually succeeded
-                const status = await checkTransactionStatus(connection, advancedOptionsSig);
-              if (!status) {
-                  console.error("Advanced options transaction failed:", advancedOptionsSig);
-                  // Continue execution since the token itself was created successfully
-              } else {
-                console.log("Advanced options transaction was successful despite timeout!");
-              }
-            }
-            } catch (advancedOptionsTxError) {
-              // Check if this is a user rejection
-              if (advancedOptionsTxError.message && (
-                  advancedOptionsTxError.message.includes("rejected") || 
-                  advancedOptionsTxError.message.includes("User rejected") ||
-                  advancedOptionsTxError.message.includes("cancelled") ||
-                  advancedOptionsTxError.message.includes("canceled")
-              )) {
-                console.log("User canceled the advanced options transaction.");
-                console.warn("Advanced security options were not applied, but the token was created successfully.");
-              } else {
-                console.error("Error sending advanced options transaction:", advancedOptionsTxError.message);
-              }
-              // Continue execution since the token itself was created successfully
-            }
-          } else {
-            console.log("No remaining advanced options needed - all transactions processed individually");
-          }
-        } catch (advancedOptionsError) {
-          console.error("Error applying advanced options:", advancedOptionsError.message);
-          // Continue execution since the token itself was created successfully
-        }
       }
 
       // Format success message (update to include the new info)
