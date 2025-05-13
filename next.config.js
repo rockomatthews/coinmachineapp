@@ -31,6 +31,12 @@ const nextConfig = {
         port: '',
         pathname: '/api/ipfs/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'coinbull.vercel.app',
+        port: '',
+        pathname: '/api/ipfs/**',
+      },
       // For production domain or other domains you might use
       {
         protocol: 'https',
@@ -96,7 +102,8 @@ const nextConfig = {
                 https://*.phantom.app
                 ws://*.phantom.app
                 wss://*.phantom.app
-                https://*.vercel.app;
+                https://*.vercel.app
+                https://api.pinata.cloud;
               frame-src 'self' https://*.solana.com https://*.phantom.app;
               frame-ancestors 'self';
               form-action 'self';

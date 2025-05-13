@@ -18,7 +18,7 @@ export async function GET(
     // Fetch the content from the IPFS gateway
     const response = await fetch(ipfsGatewayUrl, {
       headers: {
-        'User-Agent': 'Coin Machine App/1.0',
+        'User-Agent': 'CoinBull App/1.0',
       },
     });
     
