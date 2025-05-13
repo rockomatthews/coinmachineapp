@@ -257,14 +257,10 @@ function CreateCoinForm() {
       fee += ADVANCED_OPTION_FEE;
     }
     
-    // Include Raydium pool creation cost only if the option is selected
-    if (createLiquidityPool) {
-      fee += RAYDIUM_POOL_CREATION_COST;
-    }
-    
+    // Always include createLiquidityPool cost in baseFee (will be shown separately in dialog)
     setBaseFee(fee);
     setTotalFee(fee + retentionFee);
-  }, [advancedOptions, retentionFee, createLiquidityPool]);
+  }, [advancedOptions, retentionFee]);
 
   // Calculate retention fee based on percentage
   const calculateRetentionFee = (percentage) => {
@@ -357,8 +353,11 @@ function CreateCoinForm() {
       setError("Please install a Solana wallet like Phantom!");
       return;
     }
+
+    // Always set createLiquidityPool to true since we removed the checkbox
+    setCreateLiquidityPool(true);
     
-    // Show the retention dialog instead of immediately starting token creation
+    // Show the retention dialog to specify liquidity amount and retention percentage
     setShowRetentionDialog(true);
   };
 
@@ -389,9 +388,9 @@ function CreateCoinForm() {
 
     try {
       console.log("Starting token creation process with Raydium V3 pool...");
-      setStatusUpdate("Starting token creation process. This may take up to 2 minutes.");
-      console.log("This process may take up to 2 minutes to complete. Please be patient and keep the wallet window open.");
-      
+      setStatusUpdate("Starting token creation process. This may take 1-2 minutes.");
+      setProgressStep(1);
+
       // Enhanced wallet connection check with retry logic
       if (!window.solana.isConnected || !walletAddress) {
         console.log("Wallet not connected or address missing, attempting to connect...");
@@ -488,33 +487,27 @@ function CreateCoinForm() {
       // Log the RPC endpoint for debugging
       console.log("Using RPC endpoint:", connection.rpcEndpoint);
 
-      // Calculate fee in lamports - now includes retention fee
-      const feeInLamports = totalFee * LAMPORTS_PER_SOL;
-      console.log(`Collecting fee: ${totalFee} SOL (${feeInLamports} lamports)`);
-      console.log(`Retention fee: ${retentionFee} SOL for keeping ${retentionPercentage}% of supply`);
+      // Calculate fee in lamports - now includes retention fee and liquidity amount
+      const finalLiquidityAmount = liquidityAmount * LAMPORTS_PER_SOL;
+      const totalCost = totalFee * LAMPORTS_PER_SOL + finalLiquidityAmount;
+      console.log(`Total cost: ${totalCost / LAMPORTS_PER_SOL} SOL (including ${liquidityAmount} SOL for liquidity)`);
 
       // Check user's SOL balance with a safety margin for transaction fees
       const userBalance = await connection.getBalance(userPublicKey);
       console.log(`User balance: ${userBalance / LAMPORTS_PER_SOL} SOL`);
       
       // Add a small buffer for transaction fees (0.01 SOL)
-      const requiredBalance = feeInLamports + (0.01 * LAMPORTS_PER_SOL);
+      const requiredBalance = totalCost + (0.01 * LAMPORTS_PER_SOL);
       
       if (userBalance < requiredBalance) {
-        setError(`Insufficient SOL balance. You need at least ${totalFee + 0.01} SOL to create this token, but your wallet has ${(userBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL. The Raydium liquidity pool creation requires ${RAYDIUM_POOL_CREATION_COST} SOL for account rent.`);
+        setError(`Insufficient SOL balance. You need at least ${(totalCost / LAMPORTS_PER_SOL) + 0.01} SOL to create this token, but your wallet has ${(userBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL.`);
         setLoading(false);
         return;
       }
 
-      // Define Pinata API endpoint and headers
-      const pinataUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
-      const pinataHeaders = {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-          pinata_api_key: process.env.NEXT_PUBLIC_PINATA_API_KEY,
-          pinata_secret_api_key: process.env.NEXT_PUBLIC_PINATA_SECRET_API_KEY,
-        },
-      };
+      // Image and metadata uploads
+      setStatusUpdate("Uploading token image and metadata to IPFS...");
+      setProgressStep(2);
 
       // Step 0: Upload image to IPFS using Pinata (if provided)
       let imageUri = '';
@@ -590,8 +583,8 @@ function CreateCoinForm() {
 
       // Step 1: Create the token using standard SPL Token program
       console.log("Step 1: Creating token with metadata using standard SPL Token program...");
-      setStatusUpdate("Creating token and minting initial supply...");
-      setProgressStep(Math.min(progressStep + 1, 3));
+      setStatusUpdate("Creating token and setting up metadata...");
+      setProgressStep(3);
 
       // Generate a keypair for the mint
       const mintKeypair = Keypair.generate();
@@ -1150,6 +1143,7 @@ It will not display properly in wallets without metadata.
       if (createLiquidityPool) {
         console.log(`Minting bonding curve supply (${bondingCurveSupply} tokens) for the market...`);
         setStatusUpdate(`Minting ${bondingCurveSupply.toLocaleString()} tokens for liquidity pool...`);
+        setProgressStep(5);
         
         try {
           // IMPROVED APPROACH: For large supplies, mint in smaller chunks to avoid transaction size limits
@@ -1258,7 +1252,8 @@ It will not display properly in wallets without metadata.
           }
           
           console.log('Creating Raydium V3 liquidity pool for trading...');
-          setStatusUpdate("Creating a liquidity pool for trading (this step may take a while)...");
+          setStatusUpdate(`Creating liquidity pool with ${liquidityAmount} SOL...`);
+          setProgressStep(6);
           
           // Define a function to sign transactions with the wallet
           const signTransaction = async (tx) => window.solana.signTransaction(tx);
@@ -1266,82 +1261,53 @@ It will not display properly in wallets without metadata.
           // Use user-selected liquidity amount
           const poolCreationFee = liquidityAmount * LAMPORTS_PER_SOL; // Use the amount chosen by the user
           console.log(`Using user-selected pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
-          if (liquidityAmount < 4) {
-            console.log(`NOTE: This is below Raydium's recommended 4 SOL for SOL pairs but will work with higher price impact`);
-          }
-          
-          // Verify user has enough SOL for Raydium pool creation
-          const currentUserBalance = await connection.getBalance(userPublicKey);
-          console.log(`Current user balance: ${currentUserBalance / LAMPORTS_PER_SOL} SOL`);
-          
-          if (currentUserBalance < poolCreationFee + (0.01 * LAMPORTS_PER_SOL)) {
-            throw new Error(`Insufficient SOL for Raydium pool creation. You need at least ${(poolCreationFee / LAMPORTS_PER_SOL) + 0.01} SOL available, but your wallet has ${(currentUserBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL remaining. Try again with a higher SOL balance.`);
-          }
           
           // Create the Raydium V3 liquidity pool using our updated implementation
-          try {
-            setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
+          const poolResult = await createRaydiumPool({
+            connection,
+            userPublicKey,
+            mintKeypair,
+            tokenDecimals: 9,
+            tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
+            solAmount: poolCreationFee,
+            signTransaction
+          });
+          
+          if (!poolResult.success) {
+            // CRITICAL ERROR: Cannot continue without liquidity pool
+            const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
+            console.error("Liquidity pool creation failed:", errorMsg);
             
-            const poolResult = await createRaydiumPool({
-              connection,
-              userPublicKey,
-              mintKeypair,
-              tokenDecimals: 9,
-              tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
-              solAmount: poolCreationFee,
-              signTransaction
-            });
-            
-            if (!poolResult.success) {
-              // Detailed error handling
-              const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
-              console.error("Liquidity pool creation failed:", errorMsg);
-              
-              // Provide specific guidance based on error
-              if (errorMsg.includes("Custom:5") || errorMsg.includes("Custom program error: 0x5")) {
-                throw new Error(`Liquidity pool creation failed: Insufficient liquidity. Try increasing the liquidity amount to at least 0.5 SOL.`);
-              } else if (errorMsg.includes("Custom:6") || errorMsg.includes("Custom program error: 0x6")) {
-                throw new Error(`Liquidity pool creation failed: Slippage exceeded. Try using a higher liquidity amount.`);
-              } else if (errorMsg.includes("exceeded CUs meter")) {
-                throw new Error(`Liquidity pool creation failed: Transaction complexity limit exceeded. Try using a smaller token supply or higher retention percentage.`);
-              } else {
-                // Fail with detailed error message
-                throw new Error(`Liquidity pool creation failed: ${errorMsg}. Try increasing liquidity amount or using a smaller total supply.`);
-              }
-            }
-            
-            console.log("Liquidity pool created successfully!");
-            console.log("Pool ID:", poolResult.poolId);
-            setStatusUpdate("Liquidity pool created successfully!");
-            
-          } catch (poolError) {
-            // ALL errors are critical if pool creation is required
-            console.error("Error in pool creation process:", poolError);
-            
-            // Check if this is a user rejection/cancellation - only that is allowed as a non-fatal error
-            if (poolError.message && (
-                poolError.message.includes("rejected") || 
-                poolError.message.includes("User rejected") ||
-                poolError.message.includes("cancelled") ||
-                poolError.message.includes("canceled")
-            )) {
-              console.log("User canceled the pool creation process. Terminating token creation.");
-              setError("Token creation canceled by user during pool creation. Please try again and approve all transactions to complete the process.");
-              setLoading(false);
-              return; // Exit immediately
-            } else {
-              // For other errors, terminate with clear error message
-              setError(`${poolError.message}. Please try again with a higher liquidity amount (${Math.min(liquidityAmount + 0.5, 4)} SOL recommended) or without the liquidity pool option.`);
-              setLoading(false);
-              return; // Exit immediately
-            }
+            // Fail with detailed error message
+            throw new Error(`Liquidity pool creation failed: ${errorMsg}. Try again with ${Math.min(liquidityAmount + 0.1, 4)} SOL for liquidity.`);
           }
-        } catch (error) {
-          // Handle errors from the entire liquidity pool process
-          console.error("Error creating liquidity pool:", error);
-          setError(`${error.message}`);
-          setLoading(false);
-          return;
+          
+          console.log("Liquidity pool created successfully!");
+          console.log("Pool ID:", poolResult.poolId);
+          setStatusUpdate("Liquidity pool created successfully! Finalizing token creation...");
+          setProgressStep(7);
+          
+        } catch (poolError) {
+          // ALL errors are critical if pool creation is required
+          console.error("Error in pool creation process:", poolError);
+          
+          // Check if this is a user rejection/cancellation
+          if (poolError.message && (
+              poolError.message.includes("rejected") || 
+              poolError.message.includes("User rejected") ||
+              poolError.message.includes("cancelled") ||
+              poolError.message.includes("canceled")
+          )) {
+            console.log("User canceled the pool creation process. Terminating token creation.");
+            setError("Token creation canceled by user during pool creation. Please try again and approve all transactions to complete the process.");
+            setLoading(false);
+            return; // Exit immediately
+          } else {
+            // For other errors, terminate with clear error message
+            setError(`${poolError.message}. Please try again with a higher liquidity amount (${Math.min(liquidityAmount + 0.5, 4)} SOL recommended).`);
+            setLoading(false);
+            return; // Exit immediately
+          }
         }
       } else {
         console.log("Skipping liquidity pool creation as per user preference");
@@ -1350,6 +1316,8 @@ It will not display properly in wallets without metadata.
       // Store the mint address
       console.log("Final Mint Address:", mintKeypair.publicKey.toString());
       setMintAddress(mintKeypair.publicKey.toString());
+      setStatusUpdate("Token successfully created! Redirecting to token details...");
+      setProgressStep(8);
 
       // Save token information to localStorage for display on homepage
       try {
@@ -1907,39 +1875,6 @@ View on Birdeye: ${birdeyeUrl}`;
             </Typography>
           </Grid>
 
-          <Grid item xs={12} sx={{ mb: 2 }}>
-            <Divider sx={{ my: 2, backgroundColor: 'rgba(255, 255, 255, 0.1)' }} />
-            
-            <Typography variant="h6" component="div" sx={{ color: 'white', mb: 2 }}>
-              Liquidity Options
-            </Typography>
-            
-            <Paper sx={{ p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-              <FormControlLabel
-                control={
-                  <Checkbox 
-                    checked={createLiquidityPool}
-                    onChange={() => setCreateLiquidityPool(!createLiquidityPool)}
-                    sx={{ 
-                      color: 'lime',
-                      '&.Mui-checked': { color: 'lime' }
-                    }}
-                  />
-                }
-                label={
-                  <Tooltip title="Creates a minimal Raydium V3 liquidity pool for your token. Uses less SOL than recommended but will enable trading.">
-                    <Typography component="div" sx={{ color: 'white' }}>
-                      Create Liquidity Pool (+{RAYDIUM_POOL_CREATION_COST} SOL)
-                      <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.7)' }}>
-                        Uses minimal liquidity to reduce costs
-                      </Typography>
-                    </Typography>
-                  </Tooltip>
-                }
-              />
-            </Paper>
-          </Grid>
-
           <Grid item xs={12}>
             <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px' }}>
               <Typography variant="body1" sx={{ mb: 1, color: 'white' }}>
@@ -1948,15 +1883,6 @@ View on Birdeye: ${birdeyeUrl}`;
               <Typography variant="body2" component="div" sx={{ color: 'white' }}>
                 • Base Fee: <strong>{BASE_MINT_FEE} SOL</strong>
                 <br />
-                {createLiquidityPool && (
-                  <>
-                    • Liquidity Pool Creation: <strong>{RAYDIUM_POOL_CREATION_COST.toFixed(4)} SOL</strong> 
-                <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                      (actual rent cost: {RAYDIUM_POOL_RENT.toFixed(4)} SOL - we subsidize the difference)
-                </span>
-                <br />
-                  </>
-                )}
                 • Supply Retention ({retentionPercentage}%): <strong>{retentionFee.toFixed(4)} SOL</strong>
                 {advancedOptions.revokeMintAuthority && <><br />• Revoke Mint Authority: <strong>{ADVANCED_OPTION_FEE.toFixed(4)} SOL</strong></>}
                 {advancedOptions.revokeFreezeAuthority && <><br />• Revoke Freeze Authority: <strong>{ADVANCED_OPTION_FEE.toFixed(4)} SOL</strong></>}
@@ -1986,7 +1912,7 @@ View on Birdeye: ${birdeyeUrl}`;
               }}
               startIcon={loading && <CircularProgress size={20} color="inherit" />}
             >
-              {loading ? `Processing... ${statusUpdate}` : `Mint Token (Total: ${totalFee.toFixed(2)} SOL)`}
+              {loading ? `Processing... ${statusUpdate}` : `Set Liquidity & Retention`}
             </Button>
             {loading && (
               <Box sx={{ width: '100%', mt: 2 }}>
@@ -2067,7 +1993,7 @@ View on Birdeye: ${birdeyeUrl}`;
         )}
       </Box>
 
-      {/* Supply Retention Dialog */}
+      {/* Supply and Liquidity Setting Dialog */}
       <Dialog 
         open={showRetentionDialog} 
         onClose={handleCancelCreation}
@@ -2082,12 +2008,11 @@ View on Birdeye: ${birdeyeUrl}`;
         }}
       >
         <DialogTitle sx={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', color: 'lime' }}>
-          Choose How Much Supply To Keep
+          Configure Your Token Distribution and Liquidity
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Typography variant="body1" component="div" sx={{ mb: 3 }}>
-            Decide how much of the token supply you want to keep for yourself.
-            The rest will be allocated to the bonding curve for trading.
+            Customize your token distribution and trading liquidity settings:
           </Typography>
           
           <Typography variant="body2" component="div" sx={{ mb: 3, p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px' }}>
@@ -2095,8 +2020,8 @@ View on Birdeye: ${birdeyeUrl}`;
             <ul style={{ paddingLeft: '20px', margin: '8px 0' }}>
               <li>The retention percentage controls how the token supply is split between you and the liquidity pool</li>
               <li>Example: With 20% retention on 1,000,000 tokens, you keep 200,000 tokens and 800,000 go to the trading pool</li>
-              <li>This has no effect on the fees you pay - it only determines token distribution</li>
-              <li>10% of your payment goes to our platform fee, 90% covers market setup costs and initial liquidity</li>
+              <li>Liquidity amount determines how much SOL is added to create the trading pool</li>
+              <li>Higher liquidity creates better initial trading experience but costs more</li>
             </ul>
           </Typography>
           
@@ -2141,49 +2066,47 @@ View on Birdeye: ${birdeyeUrl}`;
                 />
               </Grid>
               
-              {createLiquidityPool && (
-                <Grid item xs={12}>
-                  <Typography component="div" gutterBottom>
-                    Liquidity amount: <strong>{liquidityAmount} SOL</strong>
-                  </Typography>
-                  <Slider
-                    value={liquidityAmount}
-                    onChange={(e, newValue) => setLiquidityAmount(newValue)}
-                    aria-labelledby="liquidity-slider"
-                    step={0.05}
-                    marks={[
-                      { value: 0.05, label: '0.05 SOL' },
-                      { value: 0.5, label: '0.5 SOL' },
-                      { value: 1, label: '1 SOL' },
-                      { value: 2, label: '2 SOL' },
-                      { value: 4, label: '4 SOL' }
-                    ]}
-                    min={0.05}
-                    max={4}
-                    sx={{
-                      color: 'lime',
-                      '& .MuiSlider-thumb': {
-                        backgroundColor: 'lime',
-                      },
-                      '& .MuiSlider-track': {
-                        backgroundColor: 'lime',
-                      },
-                      '& .MuiSlider-rail': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '& .MuiSlider-mark': {
-                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                      },
-                      '& .MuiSlider-markLabel': {
-                        color: 'white',
-                      },
-                    }}
-                  />
-                  <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255, 255, 255, 0.7)', mt: 1 }}>
-                    Higher liquidity = better trading experience but costs more SOL. Raydium recommends 4 SOL for optimal trading.
-                  </Typography>
-                </Grid>
-              )}
+              <Grid item xs={12}>
+                <Typography component="div" gutterBottom>
+                  Liquidity amount: <strong>{liquidityAmount} SOL</strong>
+                </Typography>
+                <Slider
+                  value={liquidityAmount}
+                  onChange={(e, newValue) => setLiquidityAmount(newValue)}
+                  aria-labelledby="liquidity-slider"
+                  step={0.05}
+                  marks={[
+                    { value: 0.05, label: '0.05 SOL' },
+                    { value: 0.5, label: '0.5 SOL' },
+                    { value: 1, label: '1 SOL' },
+                    { value: 2, label: '2 SOL' },
+                    { value: 4, label: '4 SOL' }
+                  ]}
+                  min={0.05}
+                  max={4}
+                  sx={{
+                    color: 'lime',
+                    '& .MuiSlider-thumb': {
+                      backgroundColor: 'lime',
+                    },
+                    '& .MuiSlider-track': {
+                      backgroundColor: 'lime',
+                    },
+                    '& .MuiSlider-rail': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '& .MuiSlider-mark': {
+                      backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                    },
+                    '& .MuiSlider-markLabel': {
+                      color: 'white',
+                    },
+                  }}
+                />
+                <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255, 255, 255, 0.7)', mt: 1 }}>
+                  Higher liquidity = better trading experience but costs more SOL. Raydium recommends 4 SOL for optimal trading.
+                </Typography>
+              </Grid>
               
               <Grid item xs={12} sm={6}>
                 <TextField
@@ -2240,22 +2163,18 @@ View on Birdeye: ${birdeyeUrl}`;
             <Typography variant="body2" component="div" sx={{ mb: 1 }}>
               • Base Fee: {BASE_MINT_FEE} SOL
               <br />
-              {createLiquidityPool && (
-                <>
-                  • Liquidity Pool Creation: {createLiquidityPool ? liquidityAmount : RAYDIUM_POOL_CREATION_COST} SOL
-                  <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                    (includes pool rent ~{RAYDIUM_POOL_RENT.toFixed(4)} SOL)
-                  </span>
+              • Liquidity Pool Creation: {liquidityAmount} SOL
+                <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
+                  (includes pool rent ~{RAYDIUM_POOL_RENT.toFixed(4)} SOL)
+                </span>
               <br />
-                </>
-              )}
               • Supply Retention ({retentionPercentage}%): {retentionFee} SOL
               {advancedOptions.revokeMintAuthority && <><br />• Revoke Mint Authority: {ADVANCED_OPTION_FEE} SOL</>}
               {advancedOptions.revokeFreezeAuthority && <><br />• Revoke Freeze Authority: {ADVANCED_OPTION_FEE} SOL</>}
               {advancedOptions.makeImmutable && <><br />• Make Immutable: {ADVANCED_OPTION_FEE} SOL</>}
             </Typography>
             <Typography variant="h6" component="div" sx={{ color: 'lime', fontWeight: 'bold', mt: 1 }}>
-              Total Fee: {(baseFee + retentionFee).toFixed(2)} SOL
+              Total Fee: {(baseFee + retentionFee + liquidityAmount).toFixed(2)} SOL
             </Typography>
             <Typography variant="body2" component="div" sx={{ mt: 1 }}>
               (10% platform fee, 90% for market setup and liquidity)
@@ -2283,7 +2202,7 @@ View on Birdeye: ${birdeyeUrl}`;
               '&:hover': { backgroundColor: '#c0ff00' }
             }}
           >
-            Mint Token (Total: {(baseFee + retentionFee).toFixed(2)} SOL)
+            Create Token & Add {liquidityAmount} SOL Liquidity
           </Button>
         </DialogActions>
       </Dialog>
