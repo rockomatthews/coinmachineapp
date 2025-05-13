@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Box, Typography, Grid, Paper, Avatar, Skeleton, CircularProgress } from '@mui/material';
 import { Connection, PublicKey } from '@solana/web3.js';
 
-export default function TokenWall() {
+export default function TokenWall({ hideHeading = true }) {
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -47,11 +47,7 @@ export default function TokenWall() {
   }
 
   return (
-    <Box sx={{ mt: 6 }}>
-      <Typography variant="h4" gutterBottom sx={{ color: 'white', mb: 4, textAlign: 'center' }}>
-        Created Tokens
-      </Typography>
-      
+    <Box sx={{ mt: 3 }}>
       {tokens.length === 0 ? (
         <Typography sx={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.7)' }}>
           No tokens have been created yet. Create your first token to see it here!
