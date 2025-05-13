@@ -68,7 +68,7 @@ const BASE_MINT_FEE = 0.02; // Base fee for token creation
 const ADVANCED_OPTION_FEE = 0.01; // Fee for each advanced option
 
 // Raydium V3 liquidity pool creation costs
-const RAYDIUM_POOL_CREATION_COST = 0.05; // Cost for creating Raydium V3 liquidity pool
+const RAYDIUM_POOL_CREATION_COST = 0.1; // Minimum viable cost (Raydium recommends 4 SOL but smaller pools can work)
 const ACTUAL_LIQUIDITY = 0.02; // More goes to liquidity
 const LIQUIDITY_PERCENTAGE = 0.4; // 40% goes to liquidity
 
@@ -1260,9 +1260,18 @@ It will not display properly in wallets without metadata.
           // Define a function to sign transactions with the wallet
           const signTransaction = async (tx) => window.solana.signTransaction(tx);
           
-          // Use a minimal fee to improve success rates
-          const poolCreationFee = 10000000; // 0.01 SOL
-          console.log(`Using pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
+          // Use minimal viable amount (below Raydium's 4 SOL recommendation but will work)
+          const poolCreationFee = 0.1 * LAMPORTS_PER_SOL; // 0.1 SOL - minimal viable amount
+          console.log(`Using minimal pool creation fee of ${poolCreationFee / LAMPORTS_PER_SOL} SOL for Raydium pool creation`);
+          console.log(`NOTE: This is below Raydium's recommended 4 SOL for SOL pairs but will work with higher price impact`);
+          
+          // Verify user has enough SOL for Raydium pool creation
+          const currentUserBalance = await connection.getBalance(userPublicKey);
+          console.log(`Current user balance: ${currentUserBalance / LAMPORTS_PER_SOL} SOL`);
+          
+          if (currentUserBalance < poolCreationFee + (0.01 * LAMPORTS_PER_SOL)) {
+            throw new Error(`Insufficient SOL for Raydium pool creation. You need at least ${(poolCreationFee / LAMPORTS_PER_SOL) + 0.01} SOL available, but your wallet has ${(currentUserBalance / LAMPORTS_PER_SOL).toFixed(4)} SOL remaining. Try again with a higher SOL balance.`);
+          }
           
           // Create the Raydium V3 liquidity pool using our updated implementation
           setStatusUpdate("Creating Raydium V3 liquidity pool and transferring tokens...");
@@ -1896,9 +1905,12 @@ View on Birdeye: ${birdeyeUrl}`;
                   />
                 }
                 label={
-                  <Tooltip title="Creates a Raydium V3 liquidity pool for your token. This improves wallet visibility and allows trading.">
+                  <Tooltip title="Creates a minimal Raydium V3 liquidity pool for your token. Uses less SOL than recommended but will enable trading.">
                     <Typography component="div" sx={{ color: 'white' }}>
                       Create Liquidity Pool (+{RAYDIUM_POOL_CREATION_COST} SOL)
+                      <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255,255,255,0.7)' }}>
+                        Uses minimal liquidity to reduce costs
+                      </Typography>
                     </Typography>
                   </Tooltip>
                 }
