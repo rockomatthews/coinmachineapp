@@ -283,6 +283,13 @@ async function createOpenBookMarket({
       console.log("No program ID provided, defaulting to:", programId.toString());
     }
     
+    // Ensure mintKeypair.publicKey is a proper PublicKey object
+    const mintPublicKey = mintKeypair.publicKey instanceof PublicKey 
+      ? mintKeypair.publicKey 
+      : new PublicKey(mintKeypair.publicKey);
+    
+    console.log("Using mint public key:", mintPublicKey.toString());
+    
     // Generate keypairs for all the OpenBook market accounts
     const marketKeypair = Keypair.generate();
     const requestQueueKeypair = Keypair.generate();
@@ -410,7 +417,7 @@ async function createOpenBookMarket({
       }),
       createInitializeAccountInstruction(
         baseVaultKeypair.publicKey,
-        mintKeypair.publicKey,
+        mintPublicKey,
         vaultOwner,
         TOKEN_PROGRAM_ID
       ),
@@ -477,7 +484,7 @@ async function createOpenBookMarket({
         { pubkey: asksKeypair.publicKey, isSigner: false, isWritable: true },
         { pubkey: baseVaultKeypair.publicKey, isSigner: false, isWritable: true },
         { pubkey: quoteVaultKeypair.publicKey, isSigner: false, isWritable: true },
-        { pubkey: mintKeypair.publicKey, isSigner: false, isWritable: false },
+        { pubkey: mintPublicKey, isSigner: false, isWritable: false },
         { pubkey: SOL_MINT, isSigner: false, isWritable: false },
         { pubkey: userPublicKey, isSigner: true, isWritable: false },
         { pubkey: vaultOwner, isSigner: false, isWritable: false },
@@ -530,7 +537,8 @@ export async function listTokenWithOpenBook({
   tokenDecimals,
   tokenAmount,
   solAmount,
-  signTransaction
+  signTransaction,
+  skipAuthorityRevocation = false // Add parameter to skip authority revocation
 }) {
   console.log("Starting OpenBook token listing process...");
   
@@ -543,84 +551,93 @@ export async function listTokenWithOpenBook({
     const openBookProgramId = await getOpenBookProgramId(connection);
     console.log(`Using OpenBook program ID: ${openBookProgramId.toString()}`);
     
-    // Skip redundant program verification - already done in getOpenBookProgramId
-    // Attempt to create the market regardless of program verification status
-    // Market creation will fail naturally if program doesn't exist
+    // Ensure mintKeypair.publicKey is a proper PublicKey object
+    const mintPublicKey = mintKeypair.publicKey instanceof PublicKey 
+      ? mintKeypair.publicKey 
+      : new PublicKey(mintKeypair.publicKey);
     
-    // First, revoke mint and freeze authorities to make the token immutable
-    console.log("Revoking mint and freeze authorities...");
+    console.log("Using mint public key:", mintPublicKey.toString());
     
-    // Before attempting to revoke authorities, check if they're already revoked
-    const mintInfo = await connection.getAccountInfo(mintKeypair.publicKey);
-    if (mintInfo) {
-      // Check mint authority in bytes 0-32 (all zeros means revoked)
-      const isMintAuthorityNull = mintInfo.data.slice(0, 32).every(byte => byte === 0);
+    // IMPORTANT: Only revoke authorities if explicitly requested
+    // This allows metadata to be created first, as it requires mint authority
+    if (!skipAuthorityRevocation) {
+      // First, revoke mint and freeze authorities to make the token immutable
+      console.log("Revoking mint and freeze authorities...");
       
-      // Check freeze authority in bytes 36-68 (all zeros means revoked)
-      const isFreezeAuthorityNull = mintInfo.data.slice(36, 68).every(byte => byte === 0);
-      
-      console.log(`Mint authority status: ${isMintAuthorityNull ? 'Already revoked' : 'Active'}`);
-      console.log(`Freeze authority status: ${isFreezeAuthorityNull ? 'Already revoked' : 'Active'}`);
-      
-      // Only revoke if needed
-      if (!isMintAuthorityNull || !isFreezeAuthorityNull) {
-        const revokeAuthoritiesTx = new Transaction();
+      // Before attempting to revoke authorities, check if they're already revoked
+      const mintInfo = await connection.getAccountInfo(mintPublicKey);
+      if (mintInfo) {
+        // Check mint authority in bytes 0-32 (all zeros means revoked)
+        const isMintAuthorityNull = mintInfo.data.slice(0, 32).every(byte => byte === 0);
         
-        // Only add mint authority revocation if needed
-        if (!isMintAuthorityNull) {
-          revokeAuthoritiesTx.add(
-            createSetAuthorityInstruction(
-              mintKeypair.publicKey,
-              userPublicKey,
-              AuthorityType.MintTokens,
-              null,
-              [],
-              TOKEN_PROGRAM_ID
-            )
-          );
-        }
+        // Check freeze authority in bytes 36-68 (all zeros means revoked)
+        const isFreezeAuthorityNull = mintInfo.data.slice(36, 68).every(byte => byte === 0);
         
-        // Only add freeze authority revocation if needed
-        if (!isFreezeAuthorityNull) {
-          revokeAuthoritiesTx.add(
-            createSetAuthorityInstruction(
-              mintKeypair.publicKey,
-              userPublicKey,
-              AuthorityType.FreezeAccount,
-              null,
-              [],
-              TOKEN_PROGRAM_ID
-            )
-          );
-        }
+        console.log(`Mint authority status: ${isMintAuthorityNull ? 'Already revoked' : 'Active'}`);
+        console.log(`Freeze authority status: ${isFreezeAuthorityNull ? 'Already revoked' : 'Active'}`);
         
-        // Only proceed if we have instructions to execute
-        if (revokeAuthoritiesTx.instructions.length > 0) {
-          revokeAuthoritiesTx.feePayer = userPublicKey;
-          revokeAuthoritiesTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        // Only revoke if needed
+        if (!isMintAuthorityNull || !isFreezeAuthorityNull) {
+          const revokeAuthoritiesTx = new Transaction();
           
-          try {
-            const signedRevokeAuthoritiesTx = await signTransaction(revokeAuthoritiesTx);
-            const revokeTxid = await sendTransactionWithConfirmation(connection, signedRevokeAuthoritiesTx);
-            console.log("Authorities revoked successfully:", revokeTxid);
-          } catch (revokeError) {
-            console.warn("Error while revoking authorities:", revokeError.message);
-            console.log("Continuing with token listing despite authority revocation error");
-            // Continue with the rest of the process despite this error
+          // Only add mint authority revocation if needed
+          if (!isMintAuthorityNull) {
+            revokeAuthoritiesTx.add(
+              createSetAuthorityInstruction(
+                mintPublicKey,
+                userPublicKey,
+                AuthorityType.MintTokens,
+                null,
+                [],
+                TOKEN_PROGRAM_ID
+              )
+            );
+          }
+          
+          // Only add freeze authority revocation if needed
+          if (!isFreezeAuthorityNull) {
+            revokeAuthoritiesTx.add(
+              createSetAuthorityInstruction(
+                mintPublicKey,
+                userPublicKey,
+                AuthorityType.FreezeAccount,
+                null,
+                [],
+                TOKEN_PROGRAM_ID
+              )
+            );
+          }
+          
+          // Only proceed if we have instructions to execute
+          if (revokeAuthoritiesTx.instructions.length > 0) {
+            revokeAuthoritiesTx.feePayer = userPublicKey;
+            revokeAuthoritiesTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+            
+            try {
+              const signedRevokeAuthoritiesTx = await signTransaction(revokeAuthoritiesTx);
+              const revokeTxid = await sendTransactionWithConfirmation(connection, signedRevokeAuthoritiesTx);
+              console.log("Authorities revoked successfully:", revokeTxid);
+            } catch (revokeError) {
+              console.warn("Error while revoking authorities:", revokeError.message);
+              console.log("Continuing with token listing despite authority revocation error");
+              // Continue with the rest of the process despite this error
+            }
+          } else {
+            console.log("No authority revocation needed - both are already null");
           }
         } else {
-          console.log("No authority revocation needed - both are already null");
+          console.log("Both mint and freeze authorities are already revoked, skipping...");
         }
-      } else {
-        console.log("Both mint and freeze authorities are already revoked, skipping...");
       }
+    } else {
+      console.log("Skipping authority revocation as requested - needed for metadata creation");
     }
     
     // Create the OpenBook market - this is the main part coinfactory.app and pump.fun use
     const marketResult = await createOpenBookMarket({
       connection,
       userPublicKey,
-      mintKeypair,
+      mintKeypair: { publicKey: mintPublicKey }, // Pass as object with mintPublicKey
       signTransaction,
       programId: openBookProgramId // Pass the verified program ID
     });
@@ -638,7 +655,7 @@ export async function listTokenWithOpenBook({
         
         // Get user's token account
         const userTokenAddress = await getAssociatedTokenAddress(
-          mintKeypair.publicKey,
+          mintPublicKey,
           userPublicKey,
           false,
           TOKEN_PROGRAM_ID
@@ -653,7 +670,7 @@ export async function listTokenWithOpenBook({
               userPublicKey,             // Payer
               userTokenAddress,          // Associated token account address
               userPublicKey,             // Owner
-              mintKeypair.publicKey      // Mint
+              mintPublicKey              // Mint
             )
           );
           createAtaTx.feePayer = userPublicKey;
@@ -698,13 +715,13 @@ export async function listTokenWithOpenBook({
     const birdeyeMarker = await createBirdeyeMarker({
       connection,
       userPublicKey,
-      mintPublicKey: mintKeypair.publicKey,
+      mintPublicKey: mintPublicKey,
       signTransaction
     });
     
     // Retrieve user token account (needed for UI)
     const userTokenAccount = await getAssociatedTokenAddress(
-      mintKeypair.publicKey,
+      mintPublicKey,
       userPublicKey,
       false,
       TOKEN_PROGRAM_ID
@@ -727,7 +744,9 @@ export async function listTokenWithOpenBook({
       success: false,
       error: error.message,
       tokenAccount: await getAssociatedTokenAddress(
-        mintKeypair.publicKey,
+        mintKeypair.publicKey instanceof PublicKey 
+          ? mintKeypair.publicKey 
+          : new PublicKey(mintKeypair.publicKey),
         userPublicKey,
         false, 
         TOKEN_PROGRAM_ID
