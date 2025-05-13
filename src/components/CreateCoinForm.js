@@ -385,7 +385,7 @@ function CreateCoinForm() {
     setStatusUpdate("Initializing...");
 
     try {
-      console.log("Starting token creation process with OpenBook market...");
+      console.log("Starting token creation process with Raydium V3 pool...");
       setStatusUpdate("Starting token creation process. This may take up to 2 minutes.");
       console.log("This process may take up to 2 minutes to complete. Please be patient and keep the wallet window open.");
       
@@ -707,7 +707,7 @@ function CreateCoinForm() {
       }
       
       // Before mint bonding curve supply, NOW ADD METADATA FIRST
-      // IMPORTANT: Add metadata BEFORE revoking authorities or creating the OpenBook market
+      // IMPORTANT: Add metadata BEFORE revoking authorities or creating the Raydium V3 pool
       console.log("Adding metadata to token...");
       setStatusUpdate("Creating token metadata...");
       
@@ -1143,7 +1143,7 @@ It will not display properly in wallets without metadata.
         }
       }
       
-      // Now mint bonding curve tokens and create OpenBook market
+      // Now mint bonding curve tokens and create Raydium V3 pool
       if (createLiquidityPool) {
         console.log(`Minting bonding curve supply (${bondingCurveSupply} tokens) for the market...`);
         setStatusUpdate(`Minting ${bondingCurveSupply.toLocaleString()} tokens for liquidity pool...`);
@@ -1983,7 +1983,7 @@ View on Birdeye: ${birdeyeUrl}`;
               Your token has been created and should be visible in compatible Solana wallets.
             </Typography>
             <Typography variant="body2" paragraph>
-              <strong>Note:</strong> Your token has a simplified pool to avoid OpenBook V2 errors. You can check your token&apos;s status on Birdeye or Raydium.
+              <strong>Note:</strong> Your token has been created with a Raydium V3 liquidity pool. You can check your token&apos;s status on Birdeye or Raydium.
             </Typography>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
               <Typography variant="body1" sx={{ mr: 1 }}>
@@ -2164,11 +2164,11 @@ View on Birdeye: ${birdeyeUrl}`;
               <br />
               {createLiquidityPool && (
                 <>
-                  • Liquidity Pool Creation: {OPENBOOK_POOL_CREATION_COST} SOL
+                  • Liquidity Pool Creation: {RAYDIUM_POOL_CREATION_COST} SOL
                   <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                    (actual rent cost: {OPENBOOK_RENT.toFixed(4)} SOL - we subsidize the difference)
+                    (actual rent cost: {RAYDIUM_POOL_RENT.toFixed(4)} SOL - we subsidize the difference)
                   </span>
-              <br />
+                  <br />
                 </>
               )}
               • Supply Retention ({retentionPercentage}%): {retentionFee} SOL
