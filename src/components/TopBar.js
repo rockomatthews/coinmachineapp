@@ -3,36 +3,22 @@
 import { useState, useEffect, useContext } from 'react';
 import { AppBar, Toolbar, IconButton, Button } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
-import { Connection, PublicKey } from '@solana/web3.js';
 import Sidebar from './Sidebar';
 import { WalletContext } from '@/context/WalletContext';
 
 export default function TopBar() {
-  const { walletAddress, setWalletAddress } = useContext(WalletContext);
+  const { walletAddress, connectWallet, disconnectWallet, isVerified } = useContext(WalletContext);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const connectWallet = async () => {
-    if (window.solana && window.solana.isPhantom) {
-      try {
-        const response = await window.solana.connect();
-        setWalletAddress(response.publicKey.toString());
-      } catch (err) {
-        console.error("Connection to Phantom wallet failed", err);
-      }
-    } else {
-      alert("Phantom wallet not found! Please install it.");
-    }
-  };
 
   const truncateAddress = (address) => `${address.slice(0, 4)}...${address.slice(-4)}`;
 
-  useEffect(() => {
-    if (window.solana && window.solana.isPhantom) {
-      window.solana.connect({ onlyIfTrusted: true })
-        .then(({ publicKey }) => setWalletAddress(publicKey.toString()))
-        .catch(() => {});
+  const handleWalletClick = async () => {
+    if (walletAddress) {
+      await disconnectWallet();
+    } else {
+      await connectWallet();
     }
-  }, [setWalletAddress]);
+  };
 
   return (
     <>
@@ -61,7 +47,7 @@ export default function TopBar() {
           
           <Button 
             variant="contained" 
-            onClick={connectWallet}
+            onClick={handleWalletClick}
             sx={{ 
               marginLeft: 'auto',
               backgroundColor: '#FFD700',

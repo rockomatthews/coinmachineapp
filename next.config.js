@@ -43,6 +43,12 @@ const nextConfig = {
         hostname: '*.vercel.app',
         port: '',
         pathname: '/api/ipfs/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'www.coinbull.app',
+        port: '',
+        pathname: '/api/ipfs/**',
       }
     ],
     deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048],
@@ -100,11 +106,12 @@ const nextConfig = {
                 https://cloudflare-ipfs.com
                 https://solflare.com
                 https://*.phantom.app
+                https://phantom.app
                 ws://*.phantom.app
                 wss://*.phantom.app
                 https://*.vercel.app
                 https://api.pinata.cloud;
-              frame-src 'self' https://*.solana.com https://*.phantom.app;
+              frame-src 'self' https://*.solana.com https://*.phantom.app https://phantom.app;
               frame-ancestors 'self';
               form-action 'self';
               base-uri 'self';

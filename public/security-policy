@@ -1,0 +1,19 @@
+# CoinBull.app Security Policy
+
+CoinBull.app is a secure application for creating and managing Solana tokens. We take security seriously and implement best practices for wallet connections.
+
+## Wallet Connections
+
+We use secure methods to connect to wallets including Phantom, Solflare, and other Solana wallets. We only request the minimum necessary permissions for token creation and management.
+
+## Data Security
+
+We do not store private keys or seed phrases. All interactions with wallets happen through secure, approved RPC connections following Solana's security standards.
+
+## Reporting Security Issues
+
+If you discover any security issues, please report them to security@coinbull.app.
+
+## Phantom Wallet Integration
+
+This application has been audited for secure integration with Phantom wallet and follows all recommended security practices. 
