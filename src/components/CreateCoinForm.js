@@ -796,40 +796,57 @@ function CreateCoinForm() {
           const genesisHash = await connection.getGenesisHash();
           console.log("Network genesis hash:", genesisHash);
           
-          // Since we're using the improved listTokenWithOpenBook function, it will handle program verification
-          setStatusUpdate("Creating OpenBook market and transferring liquidity...");
-          
-          const listingResult = await listTokenWithOpenBook({
-            connection,
-            userPublicKey,
-            mintKeypair,
-            tokenDecimals: 9,
-            tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
-            solAmount: poolCreationFee,
-            signTransaction: signTransaction
-          });
-
-          // Debug: Check token balance after OpenBook market creation
           try {
-            const finalTokenInfo = await connection.getTokenAccountBalance(associatedTokenAddress);
-            console.log(`User token balance after market creation: ${finalTokenInfo.value.uiAmount}`);
-            console.log(`Expected creator retention: ${creatorRetention}`);
+            // Since we're using the improved listTokenWithOpenBook function, it will handle program verification
+            setStatusUpdate("Creating OpenBook market and transferring liquidity...");
             
-            // If token amount hasn't changed after market creation, the transfer didn't work
-            if (finalTokenInfo.value.uiAmount === creatorRetention + bondingCurveSupply) {
-              console.error("⚠️ Token transfer to OpenBook market failed - balance unchanged!");
-            }
-          } catch (balanceError) {
-            console.warn("Error checking final token balance:", balanceError.message);
-          }
+            const listingResult = await listTokenWithOpenBook({
+              connection,
+              userPublicKey,
+              mintKeypair,
+              tokenDecimals: 9,
+              tokenAmount: BigInt(bondingCurveSupply * Math.pow(10, 9)),
+              solAmount: poolCreationFee,
+              signTransaction: signTransaction
+            });
 
-          if (listingResult.success) {
-            console.log("OpenBook market created successfully!");
-            console.log("Market ID:", listingResult.marketId.toString());
-            setStatusUpdate("OpenBook market created successfully!");
-          } else {
-            console.error("OpenBook market creation failed:", listingResult.error);
-            setStatusUpdate(`OpenBook market creation failed: ${listingResult.error}. Your token was still created successfully without a liquidity pool.`);
+            if (listingResult.success) {
+              console.log("OpenBook market created successfully!");
+              console.log("Market ID:", listingResult.marketId.toString());
+              setStatusUpdate("OpenBook market created successfully!");
+            } else {
+              console.error("OpenBook market creation failed:", listingResult.error);
+              
+              // Check if the error is related to the "InstructionFallbackNotFound" issue
+              if (listingResult.error && listingResult.error.includes("InstructionFallbackNotFound")) {
+                setStatusUpdate(`OpenBook market creation failed due to a program compatibility issue. Your token was created successfully, but trading will be limited until OpenBook compatibility is updated.`);
+              } else {
+                setStatusUpdate(`OpenBook market creation failed: ${listingResult.error}. Your token was still created successfully without a liquidity pool.`);
+              }
+            }
+          } catch (listingError) {
+            // Check if this is a user rejection/cancellation
+            if (listingError.message && (
+                listingError.message.includes("rejected") || 
+                listingError.message.includes("User rejected") ||
+                listingError.message.includes("cancelled") ||
+                listingError.message.includes("canceled")
+            )) {
+              console.log("User canceled the OpenBook market creation. Continuing with basic token.");
+              setStatusUpdate("Liquidity pool creation was canceled. Your token was still created successfully.");
+            } else if (listingError.message && (
+                listingError.message.includes("program not found") ||
+                listingError.message.includes("does not exist on this network") ||
+                listingError.message.includes("Only available on mainnet") ||
+                listingError.message.includes("InstructionFallbackNotFound")
+            )) {
+              console.warn("OpenBook program compatibility issue:", listingError.message);
+              setStatusUpdate("OpenBook program is currently experiencing compatibility issues. Your token was still created successfully without a liquidity pool.");
+            } else {
+              console.error("Error creating OpenBook market:", listingError.message);
+              setStatusUpdate(`Liquidity pool creation failed: ${listingError.message}. Your token was created successfully, but without a liquidity pool.`);
+            }
+            // Continue without market - token was already created successfully
           }
         } catch (listingError) {
           // Check if this is a user rejection/cancellation
@@ -844,10 +861,11 @@ function CreateCoinForm() {
           } else if (listingError.message && (
               listingError.message.includes("program not found") ||
               listingError.message.includes("does not exist on this network") ||
-              listingError.message.includes("Only available on mainnet")
+              listingError.message.includes("Only available on mainnet") ||
+              listingError.message.includes("InstructionFallbackNotFound")
           )) {
-            console.warn("OpenBook program not available on this network:", listingError.message);
-            setStatusUpdate("OpenBook program only works on Solana mainnet-beta. Your token was still created successfully.");
+            console.warn("OpenBook program compatibility issue:", listingError.message);
+            setStatusUpdate("OpenBook program is currently experiencing compatibility issues. Your token was still created successfully without a liquidity pool.");
           } else {
             console.error("Error creating OpenBook market:", listingError.message);
             setStatusUpdate(`Liquidity pool creation failed: ${listingError.message}. Your token was created successfully, but without a liquidity pool.`);

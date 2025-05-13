@@ -433,47 +433,44 @@ async function createOpenBookMarket({
     // Transaction 4: Initialize market
     console.log("Initializing market...");
     
-    // Set market parameters - matching pump.fun and coinfactory
+    // Set market parameters - matching newer OpenBook V2 requirements
     const baseLotSize = new BN(1);
     const quoteLotSize = new BN(1);
     const feeRateBps = 0; // Zero fees for new pool
     
-    // OpenBook requires a market authority
-    const [marketAuthority] = await PublicKey.findProgramAddress(
-      [Buffer.from("market"), marketKeypair.publicKey.toBuffer()],
-      programId
-    );
-    
     // Create instruction data for market initialization
-    const marketData = Buffer.alloc(50);
+    // For OpenBook V2, we need to use their specific instruction layout:
+    // Instruction discriminator (8 bytes) + proper anchor data format
+
+    // Use the anchor-compatible initialize_market discriminator
+    const discriminator = Buffer.from([139, 31, 141, 73, 11, 135, 133, 63]);
+
+    // Market parameters
+    const marketParamsLayout = Buffer.alloc(19); // 8+8+2+1 bytes
     let offset = 0;
-    
-    // Instruction discriminator (0 for initialize)
-    marketData.writeUInt8(0, offset++);
-    
+
     // Base lot size (8 bytes)
-    Buffer.from(baseLotSize.toArray('le', 8)).copy(marketData, offset);
+    baseLotSize.toBuffer('le', 8).copy(marketParamsLayout, offset);
     offset += 8;
-    
+
     // Quote lot size (8 bytes)
-    Buffer.from(quoteLotSize.toArray('le', 8)).copy(marketData, offset);
+    quoteLotSize.toBuffer('le', 8).copy(marketParamsLayout, offset);
     offset += 8;
-    
+
     // Fee rate basis points (2 bytes)
-    marketData.writeUInt16LE(feeRateBps, offset);
+    marketParamsLayout.writeUInt16LE(feeRateBps, offset);
     offset += 2;
-    
+
     // Vault signer nonce (1 byte)
-    marketData.writeUInt8(vaultSignerNonce, offset++);
+    marketParamsLayout.writeUInt8(vaultSignerNonce, offset);
+
+    // Combine discriminator and params
+    const marketData = Buffer.concat([discriminator, marketParamsLayout]);
     
-    // Quote dust threshold (8 bytes)
-    Buffer.from(new BN(100).toArray('le', 8)).copy(marketData, offset);
-    
-    // Create the initialize market instruction
+    // Create the initialize market instruction with the correct account order for OpenBook V2
     const initializeMarketIx = new TransactionInstruction({
       keys: [
         { pubkey: marketKeypair.publicKey, isSigner: false, isWritable: true },
-        { pubkey: marketAuthority, isSigner: false, isWritable: true },
         { pubkey: requestQueueKeypair.publicKey, isSigner: false, isWritable: true },
         { pubkey: eventQueueKeypair.publicKey, isSigner: false, isWritable: true },
         { pubkey: bidsKeypair.publicKey, isSigner: false, isWritable: true },
@@ -483,6 +480,7 @@ async function createOpenBookMarket({
         { pubkey: mintKeypair.publicKey, isSigner: false, isWritable: false },
         { pubkey: SOL_MINT, isSigner: false, isWritable: false },
         { pubkey: userPublicKey, isSigner: true, isWritable: false },
+        { pubkey: vaultOwner, isSigner: false, isWritable: false },
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
       ],
