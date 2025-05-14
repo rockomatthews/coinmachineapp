@@ -491,6 +491,14 @@ function CreateCoinForm() {
       const finalLiquidityAmount = liquidityAmount * LAMPORTS_PER_SOL;
       const totalCost = totalFee * LAMPORTS_PER_SOL + finalLiquidityAmount;
       console.log(`Total cost: ${totalCost / LAMPORTS_PER_SOL} SOL (including ${liquidityAmount} SOL for liquidity)`);
+      
+      // Note: The fees will appear in Phantom as separate line items:
+      // - Base Fee: 0.02 SOL
+      // - Supply Retention (xx%): x.xxxx SOL
+      // - Revoke Mint Authority: 0.0100 SOL (if selected)
+      // - Revoke Freeze Authority: 0.0100 SOL (if selected)
+      // - Make Immutable: 0.0100 SOL (if selected)
+      // Liquidity amount will be shown separately in the transaction
 
       // Check user's SOL balance with a safety margin for transaction fees
       const userBalance = await connection.getBalance(userPublicKey);
@@ -1964,7 +1972,7 @@ View on Birdeye: ${birdeyeUrl}`;
           <Grid item xs={12}>
             <Box sx={{ mb: 2, p: 2, backgroundColor: 'rgba(255, 255, 255, 0.05)', borderRadius: '4px' }}>
               <Typography variant="body1" sx={{ mb: 1, color: 'white' }}>
-                Fee Breakdown:
+                Fee Breakdown (as shown in Phantom):
               </Typography>
               <Typography variant="body2" component="div" sx={{ color: 'white' }}>
                 • Base Fee: <strong>{BASE_MINT_FEE} SOL</strong>
@@ -1978,9 +1986,9 @@ View on Birdeye: ${birdeyeUrl}`;
               <Divider sx={{ my: 1, backgroundColor: 'rgba(255, 255, 255, 0.1)' }} />
               
               <Typography variant="body2" component="div" sx={{ color: 'white' }}>
-                • Total: <strong>{totalFee.toFixed(4)} SOL</strong>
-                <div>• Platform Fee: <strong>{(totalFee * (1 - LIQUIDITY_PERCENTAGE)).toFixed(4)} SOL</strong></div>
-                <div>• Added to Liquidity Pool: <strong>{(totalFee * LIQUIDITY_PERCENTAGE).toFixed(4)} SOL</strong></div>
+                Total (displayed fees): <strong>{(totalFee).toFixed(4)} SOL</strong>
+                <br />
+                Note: Liquidity pool cost will be set in the next step.
               </Typography>
             </Box>
             
@@ -2244,26 +2252,32 @@ View on Birdeye: ${birdeyeUrl}`;
           
           <Box sx={{ backgroundColor: 'rgba(255, 255, 255, 0.05)', p: 2, mt: 2, borderRadius: '4px' }}>
             <Typography variant="body2" component="div" sx={{ mb: 1 }}>
-              Fee breakdown:
+              <strong>Fee breakdown (matching Phantom wallet display):</strong>
             </Typography>
             <Typography variant="body2" component="div" sx={{ mb: 1 }}>
-              • Base Fee: {BASE_MINT_FEE} SOL
+              • Base Fee: <strong>{BASE_MINT_FEE} SOL</strong>
               <br />
-              • Liquidity Pool Creation: {liquidityAmount} SOL
-                <span style={{ fontSize: '0.85em', fontStyle: 'italic' }}>
-                  (includes pool rent ~{RAYDIUM_POOL_RENT.toFixed(4)} SOL)
-                </span>
-              <br />
-              • Supply Retention ({retentionPercentage}%): {retentionFee} SOL
-              {advancedOptions.revokeMintAuthority && <><br />• Revoke Mint Authority: {ADVANCED_OPTION_FEE} SOL</>}
-              {advancedOptions.revokeFreezeAuthority && <><br />• Revoke Freeze Authority: {ADVANCED_OPTION_FEE} SOL</>}
-              {advancedOptions.makeImmutable && <><br />• Make Immutable: {ADVANCED_OPTION_FEE} SOL</>}
+              • Supply Retention ({retentionPercentage}%): <strong>{retentionFee.toFixed(4)} SOL</strong>
+              {advancedOptions.revokeMintAuthority && <><br />• Revoke Mint Authority: <strong>{ADVANCED_OPTION_FEE.toFixed(4)} SOL</strong></>}
+              {advancedOptions.revokeFreezeAuthority && <><br />• Revoke Freeze Authority: <strong>{ADVANCED_OPTION_FEE.toFixed(4)} SOL</strong></>}
+              {advancedOptions.makeImmutable && <><br />• Make Immutable: <strong>{ADVANCED_OPTION_FEE.toFixed(4)} SOL</strong></>}
             </Typography>
+            
+            <Divider sx={{ my: 1, backgroundColor: 'rgba(255, 255, 255, 0.1)' }} />
+            
+            <Typography variant="body2" component="div" sx={{ mb: 1 }}>
+              <strong>Additional fees not shown in Phantom:</strong>
+              <br />
+              • Liquidity Pool Creation: <strong>{liquidityAmount} SOL</strong>
+            </Typography>
+            
             <Typography variant="h6" component="div" sx={{ color: 'lime', fontWeight: 'bold', mt: 1 }}>
               Total Fee: {(baseFee + retentionFee + liquidityAmount).toFixed(2)} SOL
             </Typography>
-            <Typography variant="body2" component="div" sx={{ mt: 1 }}>
-              (10% platform fee, 90% for market setup and liquidity)
+            
+            <Typography variant="body2" component="div" sx={{ mt: 1, fontStyle: 'italic', color: 'rgba(255, 255, 255, 0.7)' }}>
+              Note: The fees displayed in your Phantom wallet transaction confirmation will match the breakdown above,
+              with liquidity pool costs shown separately.
             </Typography>
           </Box>
           

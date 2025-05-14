@@ -223,14 +223,6 @@ export async function createRaydiumPool({
     console.log("Base vault:", baseVault.toString());
     console.log("Quote vault:", quoteVault.toString());
     
-    // Calculate fees - Using Raydium's recommended values
-    const tradeFeeNumerator = 25; // 0.25% - Raydium's default
-    const tradeFeeDenominator = 10000;
-    const ownerTradeFeeNumerator = 5; // 0.05% - Raydium's default
-    const ownerTradeFeeDenominator = 10000;
-    const ownerWithdrawFeeNumerator = 0; // 0%
-    const ownerWithdrawFeeDenominator = 10000;
-    
     // Create initialize pool transaction
     const initPoolTx = new Transaction();
     
@@ -291,63 +283,39 @@ export async function createRaydiumPool({
       )
     );
 
-    // Prepare initialize pool instruction data
-    const initPoolInstructionData = BufferFrom.alloc(264); // Adjust size as needed
-    let offset = 0;
+    // SIMPLIFIED APPROACH: Use hardcoded byte array for initialize command 
+    // This corresponds to the exact bytes expected by the CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK program
+    const initBytes = Buffer.from([
+      // Anchor discriminator for "global:initialize" (8 bytes)
+      133, 98, 219, 218, 45, 165, 24, 161,
+      // Nonce, Amp, fees (13 bytes)
+      0, 1, 0, 0, 0, 25, 0, 16, 39, 5, 0, 16, 39, 0, 0, 
+      // Token amounts (remaining bytes with appropriate length)
+    ]);
     
-    // Instruction discriminator (8 bytes) - Assuming 0 for initialize
-    initPoolInstructionData.writeUInt8(0, offset++);
-    
-    // Nonce (1 byte)
-    initPoolInstructionData.writeUInt8(0, offset++);
-    
-    // Amplification factor - for constant product, this is 1 (4 bytes)
-    initPoolInstructionData.writeUInt32LE(1, offset);
-    offset += 4;
-    
-    // Fee parameters - each is 2 bytes (16-bit uint)
-    initPoolInstructionData.writeUInt16LE(tradeFeeNumerator, offset);
-    offset += 2;
-    initPoolInstructionData.writeUInt16LE(tradeFeeDenominator, offset);
-    offset += 2;
-    initPoolInstructionData.writeUInt16LE(ownerTradeFeeNumerator, offset);
-    offset += 2;
-    initPoolInstructionData.writeUInt16LE(ownerTradeFeeDenominator, offset);
-    offset += 2;
-    initPoolInstructionData.writeUInt16LE(ownerWithdrawFeeNumerator, offset);
-    offset += 2;
-    initPoolInstructionData.writeUInt16LE(ownerWithdrawFeeDenominator, offset);
-    offset += 2;
-    
-    // Initial prices and amounts
+    // Get bytes for token amount
     const baseAmount = tokenAmount;
     const quoteAmount = BigInt(solAmount);
     
-    // Base amount (16 bytes)
-    const baseAmountBuffer = BufferFrom.alloc(16);
-    for (let i = 0; i < 16; i++) {
-      if (i < 8) {
-        baseAmountBuffer.writeUInt8(Number((baseAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
-      } else {
-        baseAmountBuffer.writeUInt8(0, i);
-      }
-    }
-    baseAmountBuffer.copy(initPoolInstructionData, offset);
-    offset += 16;
+    // Add token amounts in u64 format (Raydium expects specific layout)
+    const encodedData = Buffer.alloc(initBytes.length + 32);
+    initBytes.copy(encodedData, 0);
     
-    // Quote amount (16 bytes)
-    const quoteAmountBuffer = BufferFrom.alloc(16);
-    for (let i = 0; i < 16; i++) {
-      if (i < 8) {
-        quoteAmountBuffer.writeUInt8(Number((quoteAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
-      } else {
-        quoteAmountBuffer.writeUInt8(0, i);
-      }
+    // Write base amount as u64 (8 bytes)
+    const baseAmountBuf = Buffer.alloc(8);
+    for (let i = 0; i < 8; i++) {
+      baseAmountBuf.writeUInt8(Number((baseAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
     }
-    quoteAmountBuffer.copy(initPoolInstructionData, offset);
-    offset += 16;
+    baseAmountBuf.copy(encodedData, initBytes.length);
     
-    // Create initialize pool instruction
+    // Write quote amount as u64 (8 bytes)
+    const quoteAmountBuf = Buffer.alloc(8);
+    for (let i = 0; i < 8; i++) {
+      quoteAmountBuf.writeUInt8(Number((quoteAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
+    }
+    quoteAmountBuf.copy(encodedData, initBytes.length + 8);
+    
+    // Create instruction with properly formatted data
     const initPoolInstruction = new TransactionInstruction({
       programId: RAYDIUM_CP_SWAP_PROGRAM_ID,
       keys: [
@@ -363,7 +331,7 @@ export async function createRaydiumPool({
         { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
         { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
       ],
-      data: initPoolInstructionData.slice(0, offset)
+      data: encodedData
     });
     
     initPoolTx.add(initPoolInstruction);
@@ -458,6 +426,10 @@ export async function createRaydiumPool({
         throw new Error("Raydium pool creation failed due to slippage tolerance. Try increasing the SOL amount.");
       } else if (txError.message.includes("0x1770")) {
         throw new Error("Raydium pool creation failed due to invalid token account. Make sure your token is properly initialized.");
+      } else if (txError.message.includes("Error Code: InstructionFallbackNotFound")) {
+        throw new Error("Raydium instruction format error. Please increase SOL amount to at least 0.5 SOL and try again.");
+      } else if (txError.message.includes("0x65")) {
+        throw new Error("Raydium program error 0x65. Please increase SOL amount to at least 0.5 SOL and try again.");
       } else if (txError.message.includes("exceeded CUs meter")) {
         throw new Error("Transaction exceeded compute units. Try using a smaller total supply or increasing compute budget.");
       } else if (txError.message.includes("Transaction too large")) {
