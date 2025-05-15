@@ -69,7 +69,7 @@ const BASE_MINT_FEE = 0.02; // Base fee for token creation
 const ADVANCED_OPTION_FEE = 0.01; // Fee for each advanced option
 
 // Raydium V3 liquidity pool creation costs
-const RAYDIUM_POOL_CREATION_COST = 0.1; // Default cost (users can adjust with slider)
+const RAYDIUM_POOL_CREATION_COST = 0.15; // Default minimum cost (users can adjust with slider)
 const ACTUAL_LIQUIDITY = 0.02; // More goes to liquidity
 const LIQUIDITY_PERCENTAGE = 0.4; // 40% goes to liquidity
 
@@ -148,8 +148,8 @@ function CreateCoinForm() {
   // Add new state for liquidity pool option
   const [createLiquidityPool, setCreateLiquidityPool] = useState(true);
   
-  // Add state for liquidity amount
-  const [liquidityAmount, setLiquidityAmount] = useState(0.3);
+  // Add state for liquidity amount - start at a minimum of 0.2 SOL
+  const [liquidityAmount, setLiquidityAmount] = useState(0.2);
   
   // Get wallet address from context  
   const { 
@@ -1500,8 +1500,8 @@ It will not display properly in wallets without metadata.
             const errorMsg = poolResult.error || "Unknown error creating liquidity pool";
             console.error("Liquidity pool creation failed:", errorMsg);
             
-            // Fail with detailed error message
-            throw new Error(`Liquidity pool creation failed: ${errorMsg}. Try again with ${Math.min(liquidityAmount + 0.1, 4)} SOL for liquidity.`);
+            // Fail with detailed error message - suggest a fixed small increment
+            throw new Error(`Liquidity pool creation failed: ${errorMsg}. Try again with ${Math.min(liquidityAmount + 0.05, 0.5)} SOL for liquidity.`);
           }
           
           console.log("Liquidity pool created successfully!");
@@ -1525,8 +1525,8 @@ It will not display properly in wallets without metadata.
             setLoading(false);
             return; // Exit immediately
           } else {
-            // For other errors, terminate with clear error message
-            setError(`${poolError.message}. Please try again with a higher liquidity amount (${Math.min(liquidityAmount + 0.5, 4)} SOL recommended).`);
+            // For other errors, terminate with clear error message - use a consistent suggestion
+            setError(`${poolError.message}. Please try again with a slightly higher liquidity amount (${(liquidityAmount + 0.05).toFixed(2)} SOL should be sufficient).`);
             setLoading(false);
             return; // Exit immediately
           }
@@ -2299,14 +2299,14 @@ View on Birdeye: ${birdeyeUrl}`;
                   aria-labelledby="liquidity-slider"
                   step={0.05}
                   marks={[
+                    { value: 0.15, label: '0.15 SOL' },
                     { value: 0.2, label: '0.2 SOL' },
                     { value: 0.3, label: '0.3 SOL' },
                     { value: 0.5, label: '0.5 SOL' },
-                    { value: 1, label: '1 SOL' },
-                    { value: 4, label: '4 SOL' }
+                    { value: 1, label: '1 SOL' }
                   ]}
-                  min={0.2}
-                  max={4}
+                  min={0.15}
+                  max={1.5}
                   sx={{
                     color: 'lime',
                     '& .MuiSlider-thumb': {
@@ -2327,7 +2327,7 @@ View on Birdeye: ${birdeyeUrl}`;
                   }}
                 />
                 <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255, 255, 255, 0.7)', mt: 1 }}>
-                  Minimum 0.2 SOL for basic pools (like coinfactory). 0.3-0.5 SOL recommended for better reliability.
+                  Starting at just 0.15 SOL! More competitive than other token creators. Higher values (0.2-0.3 SOL) improve liquidity depth.
                 </Typography>
               </Grid>
               

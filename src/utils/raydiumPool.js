@@ -176,10 +176,10 @@ export async function createRaydiumPool({
   console.log("Initial parameters:", solAmount / LAMPORTS_PER_SOL, "SOL,", tokenAmount.toString(), "tokens");
   
   try {
-    // Enforce minimum viable SOL amount - Need at least 0.3 SOL for reliable pool creation
-    const minimumSolAmount = 0.3 * LAMPORTS_PER_SOL;
+    // Set minimum viable SOL amount - Competitive with coinfactory.app
+    const minimumSolAmount = 0.15 * LAMPORTS_PER_SOL;
     if (solAmount < minimumSolAmount) {
-      console.warn(`WARNING: SOL amount ${solAmount / LAMPORTS_PER_SOL} is below recommended minimum. Increasing to ${minimumSolAmount / LAMPORTS_PER_SOL} SOL.`);
+      console.warn(`WARNING: SOL amount ${solAmount / LAMPORTS_PER_SOL} is below absolute minimum. Increasing to ${minimumSolAmount / LAMPORTS_PER_SOL} SOL.`);
       solAmount = minimumSolAmount;
     }
     
@@ -402,7 +402,7 @@ export async function createRaydiumPool({
         // Check if the transaction was actually successful despite confirmation timeout
         const status = await checkTransactionStatus(connection, txid);
         if (!status) {
-          throw new Error(`Pool creation transaction failed. Try again with higher SOL amount. Signature: ${txid}`);
+          throw new Error(`Pool creation transaction failed. Try again with slightly higher SOL amount (0.05 SOL more). Signature: ${txid}`);
         }
         console.log("Pool transaction succeeded despite confirmation issues!");
       }
@@ -421,15 +421,15 @@ export async function createRaydiumPool({
       console.error("Transaction error:", txError);
       
       if (txError.message.includes("Custom program error: 0x5") || txError.message.includes("Custom:5")) {
-        throw new Error("Raydium pool creation failed due to insufficient liquidity. Please increase SOL amount to at least 0.5 SOL.");
+        throw new Error("Raydium pool creation failed due to insufficient liquidity. Try increasing your SOL amount slightly.");
       } else if (txError.message.includes("Custom program error: 0x6") || txError.message.includes("Custom:6")) {
-        throw new Error("Raydium pool creation failed due to slippage tolerance. Try increasing the SOL amount.");
+        throw new Error("Raydium pool creation failed due to slippage tolerance. Try increasing your SOL amount by 0.05 SOL.");
       } else if (txError.message.includes("0x1770")) {
         throw new Error("Raydium pool creation failed due to invalid token account. Make sure your token is properly initialized.");
       } else if (txError.message.includes("Error Code: InstructionFallbackNotFound")) {
-        throw new Error("Raydium instruction format error. Please increase SOL amount to at least 0.5 SOL and try again.");
+        throw new Error("Raydium instruction format error. Try increasing your SOL amount by 0.05 SOL.");
       } else if (txError.message.includes("0x65")) {
-        throw new Error("Raydium program error 0x65. Please increase SOL amount to at least 0.5 SOL and try again.");
+        throw new Error("Raydium program error 0x65. Try increasing your SOL amount by 0.05 SOL.");
       } else if (txError.message.includes("exceeded CUs meter")) {
         throw new Error("Transaction exceeded compute units. Try using a smaller total supply or increasing compute budget.");
       } else if (txError.message.includes("Transaction too large")) {
