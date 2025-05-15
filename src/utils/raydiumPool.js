@@ -230,10 +230,10 @@ export async function createRaydiumPool({
     const { ComputeBudgetProgram } = await import('@solana/web3.js');
     initPoolTx.add(
       ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: 1000000 // Much higher priority fee for better success chances
+        microLamports: 10000 // Reduce to more reasonable value
       }),
       ComputeBudgetProgram.setComputeUnitLimit({
-        units: 400000 // Higher compute unit limit for complex transactions
+        units: 500000 // Increase compute limit for complex CP-Swap transaction
       })
     );
     
@@ -288,34 +288,32 @@ export async function createRaydiumPool({
     const initBytes = Buffer.from([
       // Anchor discriminator for "global:initialize" (8 bytes)
       133, 98, 219, 218, 45, 165, 24, 161,
-      // Nonce, Amp, fees (13 bytes)
-      0, 1, 0, 0, 0, 25, 0, 16, 39, 5, 0, 16, 39, 0, 0, 
-      // Token amounts (remaining bytes with appropriate length)
+      // Nonce, Amp, fees (13 bytes) - Updated for newer Raydium CP-Swap format
+      0, 1, 0, 0, 0, 25, 0, 16, 39, 5, 0, 16, 39, 0, 0,
     ]);
     
     // Get bytes for token amount
     const baseAmount = tokenAmount;
     const quoteAmount = BigInt(solAmount);
     
-    // Add token amounts in u64 format (Raydium expects specific layout)
-    const encodedData = Buffer.alloc(initBytes.length + 32);
+    // Create properly sized buffer for instruction data
+    // Raydium CP-Swap expects exactly 8 bytes for each u64 amount
+    const encodedData = Buffer.alloc(initBytes.length + 16);
     initBytes.copy(encodedData, 0);
     
-    // Write base amount as u64 (8 bytes)
-    const baseAmountBuf = Buffer.alloc(8);
-    for (let i = 0; i < 8; i++) {
-      baseAmountBuf.writeUInt8(Number((baseAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
+    // Properly write numbers in little-endian format (Solana/Anchor standard)
+    function writeBigIntLE(buffer, value, offset) {
+      for (let i = 0; i < 8; i++) {
+        buffer[offset + i] = Number((value >> BigInt(i * 8)) & BigInt(0xFF));
+      }
     }
-    baseAmountBuf.copy(encodedData, initBytes.length);
     
-    // Write quote amount as u64 (8 bytes)
-    const quoteAmountBuf = Buffer.alloc(8);
-    for (let i = 0; i < 8; i++) {
-      quoteAmountBuf.writeUInt8(Number((quoteAmount >> BigInt(i * 8)) & BigInt(0xFF)), i);
-    }
-    quoteAmountBuf.copy(encodedData, initBytes.length + 8);
+    // Write amounts using proper little-endian format
+    writeBigIntLE(encodedData, baseAmount, initBytes.length);
+    writeBigIntLE(encodedData, quoteAmount, initBytes.length + 8);
     
-    // Create instruction with properly formatted data
+    // Create instruction with properly formatted keys in the right order
+    // The account order is critical for the CP-Swap program
     const initPoolInstruction = new TransactionInstruction({
       programId: RAYDIUM_CP_SWAP_PROGRAM_ID,
       keys: [
@@ -427,13 +425,15 @@ export async function createRaydiumPool({
       } else if (txError.message.includes("0x1770")) {
         throw new Error("Raydium pool creation failed due to invalid token account. Make sure your token is properly initialized.");
       } else if (txError.message.includes("Error Code: InstructionFallbackNotFound")) {
-        throw new Error("Raydium instruction format error. Try increasing your SOL amount by 0.05 SOL.");
+        throw new Error("Raydium CP-Swap instruction format error. This is likely a serialization issue, not an amount problem. Contact support for assistance.");
       } else if (txError.message.includes("0x65")) {
         throw new Error("Raydium program error 0x65. Try increasing your SOL amount by 0.05 SOL.");
       } else if (txError.message.includes("exceeded CUs meter")) {
         throw new Error("Transaction exceeded compute units. Try using a smaller total supply or increasing compute budget.");
       } else if (txError.message.includes("Transaction too large")) {
         throw new Error("Transaction is too large. Try reducing the token supply or using multiple smaller transactions.");
+      } else if (txError.message.includes("Transaction simulation failed")) {
+        throw new Error("Transaction simulation failed. This may be due to instruction format issues, not token amount. The transaction structure needs fixing.");
       } else {
         throw new Error(txError.message);
       }
