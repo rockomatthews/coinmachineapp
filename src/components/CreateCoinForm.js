@@ -353,7 +353,7 @@ function CreateCoinForm() {
       setError("Please install a Solana wallet like Phantom!");
       return;
     }
-
+    
     // Always set createLiquidityPool to true since we removed the checkbox
     setCreateLiquidityPool(true);
     
@@ -516,7 +516,7 @@ function CreateCoinForm() {
       // Image and metadata uploads
       setStatusUpdate("Uploading token image and metadata to IPFS...");
       setProgressStep(2);
-      
+
       // Define Pinata API endpoint and headers
       const pinataUrl = 'https://api.pinata.cloud/pinning/pinFileToIPFS';
       const pinataHeaders = {
@@ -738,12 +738,24 @@ function CreateCoinForm() {
         try {
           console.log("Verifying IPFS URI is accessible...");
           
-          // Use our proxy API to avoid CORS issues
+          // Use our proxy API to avoid CORS issues with x-metadata-required header
           const proxyUrl = metadataUri.includes('/ipfs/') 
             ? `/api/ipfs/${metadataUri.split('/ipfs/')[1]}`
             : metadataUri;
           
-          await fetch(proxyUrl);
+          // Set a short timeout for this verification check
+          const verifyPromise = fetch(proxyUrl, { 
+            cache: 'no-store',
+            headers: {
+              'x-metadata-required': 'true' // Signal that we need immediate response
+            }
+          });
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('IPFS URI fetch timeout')), 5000)
+          );
+          
+          // Race the fetch against a timeout
+          await Promise.race([verifyPromise, timeoutPromise]);
           console.log("IPFS URI check completed successfully");
         } catch (uriError) {
           // This is a top-level error in the URI check itself
@@ -761,8 +773,8 @@ function CreateCoinForm() {
           symbol: formData.symbol,
           uri: metadataUri,
           creators: [{
-            address: userPublicKey,
-            share: 100,
+              address: userPublicKey,
+              share: 100,
             verified: false // Set this to false since we'll verify in the next step
           }],
           sellerFeeBasisPoints: 0,
@@ -817,24 +829,83 @@ function CreateCoinForm() {
               try {
                 console.log("Verifying final IPFS URI is accessible to wallets...");
                 
-                // Use a more reliable method to access the URI
-                const proxyUrl = metadataUri.includes('/ipfs/') 
-                  ? `/api/ipfs/${metadataUri.split('/ipfs/')[1]}`
-                  : metadataUri;
+                // Create a safe verification function that won't block the process
+                const verifyMetadataUri = async () => {
+                  try {
+                    // Use our proxy API to avoid CORS issues
+                    const proxyUrl = metadataUri.includes('/ipfs/') 
+                      ? `/api/ipfs/${metadataUri.split('/ipfs/')[1]}`
+                      : metadataUri;
+                    
+                    // Create an AbortController for timeout
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 5000);
+                    
+                    try {
+                      // Fetch with timeout
+                      const response = await fetch(proxyUrl, { 
+                        cache: 'no-store',
+                        signal: controller.signal,
+                        headers: {
+                          'x-metadata-required': 'true' // Signal that we need immediate response
+                        }
+                      });
+                      
+                      // Clear the timeout
+                      clearTimeout(timeoutId);
+                      
+                      const metadata = await response.json();
+                      console.log("IPFS metadata verified and accessible:", metadata.name);
+                      return true;
+                    } catch (proxyError) {
+                      console.warn("Proxy verification failed:", proxyError.message);
+                      
+                      // Try a direct gateway as fallback
+                      if (metadataUri.includes('/ipfs/')) {
+                        const hash = metadataUri.split('/ipfs/')[1];
+                        const directUrl = `https://gateway.pinata.cloud/ipfs/${hash}`;
+                        
+                        try {
+                          // Create a new controller for direct request
+                          const directController = new AbortController();
+                          const directTimeoutId = setTimeout(() => directController.abort(), 5000);
+                          
+                          const directResponse = await fetch(directUrl, { 
+                            cache: 'no-store',
+                            signal: directController.signal,
+                            headers: {
+                              'User-Agent': 'CoinBull/1.0' // Some gateways require a user agent
+                            }
+                          });
+                          
+                          // Clear the timeout
+                          clearTimeout(directTimeoutId);
+                          
+                          const directData = await directResponse.json();
+                          console.log("Direct gateway verification successful:", directData.name);
+                          return true;
+                        } catch (directError) {
+                          console.warn("Direct gateway verification failed:", directError.message);
+                          return false;
+                        }
+                      }
+                      return false;
+                    }
+                  } catch (error) {
+                    console.warn("IPFS URI verification error:", error);
+                    return false;
+                  }
+                };
                 
-                // Use a timeout - Phantom needs to be able to access this quickly
-                const fetchPromise = fetch(proxyUrl);
-                const timeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('IPFS URI fetch timeout')), 15000)
-                );
-                
-                const response = await Promise.race([fetchPromise, timeoutPromise]);
-                const metadata = await response.json();
-                
-                console.log("IPFS metadata verified and accessible:", metadata.name);
+                // Execute but don't await - don't block the token creation process
+                verifyMetadataUri().then(success => {
+                  if (!success) {
+                    console.log("Could not verify IPFS URI but continuing with token creation");
+                  }
+                });
               } catch (uriVerificationError) {
                 console.warn("Warning: IPFS URI verification failed:", uriVerificationError.message);
-                console.log("Phantom wallet may have difficulty accessing token metadata");
+                console.log("Proceeding with token creation regardless of verification failure");
               }
             }
           } catch (verificationError) {
@@ -875,65 +946,65 @@ function CreateCoinForm() {
           console.log("Creator verified successfully!");
 
         // The metadata is now created, proceed to apply advanced options AFTER metadata creation:
+
+      // Apply advanced options if selected
+      if (advancedOptions.revokeMintAuthority || advancedOptions.revokeFreezeAuthority || advancedOptions.makeImmutable) {
+        console.log("Applying advanced options...");
+        setStatusUpdate("Applying advanced token security options...");
+        setProgressStep(5);
         
-        // Apply advanced options if selected
-        if (advancedOptions.revokeMintAuthority || advancedOptions.revokeFreezeAuthority || advancedOptions.makeImmutable) {
-          console.log("Applying advanced options...");
-          setStatusUpdate("Applying advanced token security options...");
-          setProgressStep(5);
+        try {
+          // Check if the mint and freeze authorities are already revoked by reading the mint account
+          const mintInfoAccount = await connection.getAccountInfo(mintKeypair.publicKey);
+          if (!mintInfoAccount) {
+            throw new Error("Could not find mint account");
+          }
           
-          try {
-            // Check if the mint and freeze authorities are already revoked by reading the mint account
-            const mintInfoAccount = await connection.getAccountInfo(mintKeypair.publicKey);
-            if (!mintInfoAccount) {
-              throw new Error("Could not find mint account");
-            }
-            
-            // Simple check - we know the authority fields are in the first few bytes
-            const isAuthorityNull = (offset) => {
-              // Check if the 32 bytes at this offset are all zeros (indicating null)
-              const authorityBytes = mintInfoAccount.data.slice(offset, offset + 32);
-              return authorityBytes.every(byte => byte === 0);
-            };
-            
-            const mintAuthorityNull = isAuthorityNull(0); // Mint authority is at the beginning
-            const freezeAuthorityNull = isAuthorityNull(36); // Freeze authority is after mint authority (4 bytes for option)
-            
-            console.log("Current mint authority status:", mintAuthorityNull ? "Already revoked" : "Active");
-            console.log("Current freeze authority status:", freezeAuthorityNull ? "Already revoked" : "Active");
-            
+          // Simple check - we know the authority fields are in the first few bytes
+          const isAuthorityNull = (offset) => {
+            // Check if the 32 bytes at this offset are all zeros (indicating null)
+            const authorityBytes = mintInfoAccount.data.slice(offset, offset + 32);
+            return authorityBytes.every(byte => byte === 0);
+          };
+          
+          const mintAuthorityNull = isAuthorityNull(0); // Mint authority is at the beginning
+          const freezeAuthorityNull = isAuthorityNull(36); // Freeze authority is after mint authority (4 bytes for option)
+          
+          console.log("Current mint authority status:", mintAuthorityNull ? "Already revoked" : "Active");
+          console.log("Current freeze authority status:", freezeAuthorityNull ? "Already revoked" : "Active");
+          
             // Important: If user selected to revoke authorities, ensure they are actually revoked
             // Rather than handling individually, let's create a single transaction to revoke both if needed
             const revokeAuthoritiesTx = new Transaction();
-            
+          
             // If revoke mint authority is selected and not already revoked, add to transaction
-            if (advancedOptions.revokeMintAuthority && !mintAuthorityNull) {
+          if (advancedOptions.revokeMintAuthority && !mintAuthorityNull) {
               console.log("Adding instruction to revoke mint authority...");
               revokeAuthoritiesTx.add(
-                createSetAuthorityInstruction(
-                  mintKeypair.publicKey,
-                  userPublicKey,
-                  AuthorityType.MintTokens,
-                  null, // Setting to null revokes the authority
-                  [],
-                  TOKEN_PROGRAM_ID
-                )
-              );
+              createSetAuthorityInstruction(
+                mintKeypair.publicKey,
+                userPublicKey,
+                AuthorityType.MintTokens,
+                null, // Setting to null revokes the authority
+                [],
+                TOKEN_PROGRAM_ID
+              )
+            );
             }
             
             // If revoke freeze authority is selected and not already revoked, add to transaction
-            if (advancedOptions.revokeFreezeAuthority && !freezeAuthorityNull) {
+          if (advancedOptions.revokeFreezeAuthority && !freezeAuthorityNull) {
               console.log("Adding instruction to revoke freeze authority...");
               revokeAuthoritiesTx.add(
-                createSetAuthorityInstruction(
-                  mintKeypair.publicKey,
-                  userPublicKey,
-                  AuthorityType.FreezeAccount,
-                  null, // Setting to null revokes the authority
-                  [],
-                  TOKEN_PROGRAM_ID
-                )
-              );
+              createSetAuthorityInstruction(
+                mintKeypair.publicKey,
+                userPublicKey,
+                AuthorityType.FreezeAccount,
+                null, // Setting to null revokes the authority
+                [],
+                TOKEN_PROGRAM_ID
+              )
+            );
             }
             
             // If there are any revocation instructions, send the transaction
@@ -971,110 +1042,110 @@ function CreateCoinForm() {
               }
             } else {
               console.log("No authorities need to be revoked - skipping revocation transaction");
-            }
+          }
+          
+          // If make immutable is selected, update the metadata account to be immutable
+          if (advancedOptions.makeImmutable) {
+            console.log("Making token metadata immutable...");
             
-            // If make immutable is selected, update the metadata account to be immutable
-            if (advancedOptions.makeImmutable) {
-              console.log("Making token metadata immutable...");
+            try {
+              // Find the metadata account address
+              const [metadataAddress] = await PublicKey.findProgramAddress(
+                [
+                  Buffer.from("metadata"),
+                  TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+                  mintKeypair.publicKey.toBuffer(),
+                ],
+                TOKEN_METADATA_PROGRAM_ID
+              );
               
+              console.log("Metadata address:", metadataAddress.toString());
+              
+              // Create a new update authority - set to null to make it immutable
+              const newUpdateAuthority = null;
+              
+              // Using a simpler approach - create a very minimal UpdateMetadata instruction
+              // Instruction layout: [1 (discriminator), 0 (data option), 1 (update authority option), 0 (primary sale option)]
+              const buffer = Buffer.from([1, 0, 1, 0]); 
+              
+              // Add the instruction with minimal data - only indicating we're updating the update authority
+              const immutableIx = new TransactionInstruction({
+                keys: [
+                  { pubkey: metadataAddress, isSigner: false, isWritable: true },
+                  { pubkey: userPublicKey, isSigner: true, isWritable: false },
+                ],
+                programId: TOKEN_METADATA_PROGRAM_ID,
+                data: buffer
+              });
+              
+              // Create a transaction 
+              const makeImmutableTx = new Transaction().add(immutableIx);
+              makeImmutableTx.feePayer = userPublicKey;
+              makeImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+              
+              // Sign and send the transaction
               try {
-                // Find the metadata account address
-                const [metadataAddress] = await PublicKey.findProgramAddress(
-                  [
-                    Buffer.from("metadata"),
-                    TOKEN_METADATA_PROGRAM_ID.toBuffer(),
-                    mintKeypair.publicKey.toBuffer(),
-                  ],
-                  TOKEN_METADATA_PROGRAM_ID
-                );
+                const { signature: immutableSig } = await window.solana.signAndSendTransaction(makeImmutableTx);
+                console.log("Immutable transaction signature:", immutableSig);
                 
-                console.log("Metadata address:", metadataAddress.toString());
-                
-                // Create a new update authority - set to null to make it immutable
-                const newUpdateAuthority = null;
-                
-                // Using a simpler approach - create a very minimal UpdateMetadata instruction
-                // Instruction layout: [1 (discriminator), 0 (data option), 1 (update authority option), 0 (primary sale option)]
-                const buffer = Buffer.from([1, 0, 1, 0]); 
-                
-                // Add the instruction with minimal data - only indicating we're updating the update authority
-                const immutableIx = new TransactionInstruction({
-                  keys: [
-                    { pubkey: metadataAddress, isSigner: false, isWritable: true },
-                    { pubkey: userPublicKey, isSigner: true, isWritable: false },
-                  ],
-                  programId: TOKEN_METADATA_PROGRAM_ID,
-                  data: buffer
-                });
-                
-                // Create a transaction 
-                const makeImmutableTx = new Transaction().add(immutableIx);
-                makeImmutableTx.feePayer = userPublicKey;
-                makeImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-                
-                // Sign and send the transaction
                 try {
-                  const { signature: immutableSig } = await window.solana.signAndSendTransaction(makeImmutableTx);
-                  console.log("Immutable transaction signature:", immutableSig);
-                  
+                  // Confirm transaction
+                  await confirmTransactionWithRetry(connection, immutableSig, 'confirmed', 30000, 2);
+                  console.log("Token metadata made immutable successfully");
+                } catch (confirmError) {
+                  console.warn("Immutable transaction confirmation error:", confirmError.message);
+                  console.log("Transaction may still succeed, continuing with process");
+                }
+              } catch (txError) {
+                // If user rejects, that's ok - token is still created
+                console.warn("Failed to make metadata immutable:", txError.message);
+                if (txError.message && (
+                  txError.message.includes("rejected") || 
+                  txError.message.includes("cancelled") ||
+                  txError.message.includes("canceled")
+                )) {
+                  console.log("User rejected immutable transaction - continuing with process");
+                } else {
+                  // For technical errors, we can try an alternate approach with different parameters
+                  console.log("Attempting alternate approach for making metadata immutable...");
                   try {
-                    // Confirm transaction
-                    await confirmTransactionWithRetry(connection, immutableSig, 'confirmed', 30000, 2);
-                    console.log("Token metadata made immutable successfully");
-                  } catch (confirmError) {
-                    console.warn("Immutable transaction confirmation error:", confirmError.message);
-                    console.log("Transaction may still succeed, continuing with process");
-                  }
-                } catch (txError) {
-                  // If user rejects, that's ok - token is still created
-                  console.warn("Failed to make metadata immutable:", txError.message);
-                  if (txError.message && (
-                    txError.message.includes("rejected") || 
-                    txError.message.includes("cancelled") ||
-                    txError.message.includes("canceled")
-                  )) {
-                    console.log("User rejected immutable transaction - continuing with process");
-                  } else {
-                    // For technical errors, we can try an alternate approach with different parameters
-                    console.log("Attempting alternate approach for making metadata immutable...");
+                    // Just try with simpler data - only the instruction discriminator
+                    const simpleBuffer = Buffer.from([1]);
+                    
+                    const simpleImmutableIx = new TransactionInstruction({
+                      keys: [
+                        { pubkey: metadataAddress, isSigner: false, isWritable: true },
+                        { pubkey: userPublicKey, isSigner: true, isWritable: false },
+                      ],
+                      programId: TOKEN_METADATA_PROGRAM_ID,
+                      data: simpleBuffer
+                    });
+                    
+                    const simpleImmutableTx = new Transaction().add(simpleImmutableIx);
+                    simpleImmutableTx.feePayer = userPublicKey;
+                    simpleImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+                    
+                    const { signature: simpleImmutableSig } = await window.solana.signAndSendTransaction(simpleImmutableTx);
+                    console.log("Simple immutable transaction signature:", simpleImmutableSig);
+                    
                     try {
-                      // Just try with simpler data - only the instruction discriminator
-                      const simpleBuffer = Buffer.from([1]);
-                      
-                      const simpleImmutableIx = new TransactionInstruction({
-                        keys: [
-                          { pubkey: metadataAddress, isSigner: false, isWritable: true },
-                          { pubkey: userPublicKey, isSigner: true, isWritable: false },
-                        ],
-                        programId: TOKEN_METADATA_PROGRAM_ID,
-                        data: simpleBuffer
-                      });
-                      
-                      const simpleImmutableTx = new Transaction().add(simpleImmutableIx);
-                      simpleImmutableTx.feePayer = userPublicKey;
-                      simpleImmutableTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-                      
-                      const { signature: simpleImmutableSig } = await window.solana.signAndSendTransaction(simpleImmutableTx);
-                      console.log("Simple immutable transaction signature:", simpleImmutableSig);
-                      
-                      try {
-                        await confirmTransactionWithRetry(connection, simpleImmutableSig, 'confirmed', 30000, 2);
-                        console.log("Token metadata made immutable (alternate approach succeeded)");
-                      } catch (altConfirmError) {
-                        console.warn("Alternate immutable transaction confirmation error:", altConfirmError.message);
-                      }
-                    } catch (altError) {
-                      console.warn("Alternate approach also failed:", altError.message);
-                      console.log("Continuing with process - token is still functional");
+                      await confirmTransactionWithRetry(connection, simpleImmutableSig, 'confirmed', 30000, 2);
+                      console.log("Token metadata made immutable (alternate approach succeeded)");
+                    } catch (altConfirmError) {
+                      console.warn("Alternate immutable transaction confirmation error:", altConfirmError.message);
                     }
+                  } catch (altError) {
+                    console.warn("Alternate approach also failed:", altError.message);
+                    console.log("Continuing with process - token is still functional");
                   }
                 }
-              } catch (metaplexError) {
-                console.error("Error making token metadata immutable:", metaplexError.message);
-                console.warn("Continuing with token creation despite metadata immutability error");
-                // Continue execution - token is still created
               }
+            } catch (metaplexError) {
+              console.error("Error making token metadata immutable:", metaplexError.message);
+              console.warn("Continuing with token creation despite metadata immutability error");
+              // Continue execution - token is still created
             }
+          }
           } catch (advancedOptionsError) {
             console.error("Error applying advanced options:", advancedOptionsError.message);
             // Continue execution since the token itself was created successfully
@@ -1113,7 +1184,7 @@ It will not display properly in wallets without metadata.
           setSuccess(true);
           setLoading(false);
           return; // Stop the process here
-        } else {
+              } else {
           // For any other error, don't proceed - metadata is required for proper functionality
           setError(`Metadata creation failed: ${metadataError.message}. The token was created but won't display properly in wallets. Please try again or contact support.`);
           setLoading(false);
@@ -1143,7 +1214,7 @@ It will not display properly in wallets without metadata.
         const { signature: platformFeeSig } = await window.solana.signAndSendTransaction(platformFeeTx);
         console.log('Platform fee collected:', platformFeeSig);
       } catch (feeError) {
-        // Check if this is a user rejection
+              // Check if this is a user rejection
         if (feeError.message && (
             feeError.message.includes("rejected") || 
             feeError.message.includes("User rejected") ||
@@ -1152,7 +1223,7 @@ It will not display properly in wallets without metadata.
         )) {
           console.log("User canceled the platform fee transaction.");
           console.warn("Platform fee transaction was canceled, but token was created.");
-        } else {
+              } else {
           console.warn("Failed to collect platform fee, but token was created:", feeError.message);
         }
       }
@@ -1318,7 +1389,7 @@ It will not display properly in wallets without metadata.
                 
                 // Break the loop since we've minted everything
                 break;
-              } else {
+          } else {
                 // For small supply, we can just retry with higher fees
                 console.log("Retrying with higher fees...");
                 continue;
