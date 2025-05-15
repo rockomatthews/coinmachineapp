@@ -22,7 +22,7 @@ export default function HomePage() {
         <Box sx={{ maxWidth: '400px', mx: 'auto', mb: 2 }}>
           <Logo height={200} />
         </Box>
-        <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'text.secondary' }}>
+        <Typography variant="h5" component="h2" sx={{ mb: 3, color: 'white' }}>
           CoinBull.app - Create and launch your own Solana token in minutes
         </Typography>
         <Typography variant="body1" sx={{ mb: 4, color: '#FFD700', fontWeight: 'bold' }}>
@@ -51,7 +51,7 @@ export default function HomePage() {
         <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
           🔥Raging Tokens🔥
         </Typography>
-        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
+        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'rgba(255, 255, 255, 0.8)' }}>
           Check out the latest tokens created by our community
         </Typography>
         <Grid container spacing={3}>
@@ -104,7 +104,7 @@ export default function HomePage() {
         <Typography variant="h4" component="h2" gutterBottom sx={{ textAlign: 'center' }}>
           Recently Created Tokens
         </Typography>
-        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'text.secondary' }}>
+        <Typography variant="body1" sx={{ mb: 4, textAlign: 'center', color: 'rgba(255, 255, 255, 0.8)' }}>
           See what others are building on Solana
         </Typography>
         <TokenWall />
