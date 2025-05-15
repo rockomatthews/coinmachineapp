@@ -148,7 +148,7 @@ function CreateCoinForm() {
   const [createLiquidityPool, setCreateLiquidityPool] = useState(true);
   
   // Add state for liquidity amount
-  const [liquidityAmount, setLiquidityAmount] = useState(0.1);
+  const [liquidityAmount, setLiquidityAmount] = useState(0.3);
   
   // Get wallet address from context  
   const { 
@@ -1197,15 +1197,20 @@ It will not display properly in wallets without metadata.
 
       // Collect platform fee regardless of pool creation
       try {
-        const platformFee = 20000000; // 0.02 SOL
-        console.log(`Collecting platform fee (${platformFee / LAMPORTS_PER_SOL} SOL)...`);
+        // Base platform fee + 10% of the liquidity amount
+        const basePlatformFee = 20000000; // 0.02 SOL
+        const liquidityFeePercentage = 0.1; // 10% of the liquidity amount
+        const liquidityFee = Math.floor(liquidityAmount * LAMPORTS_PER_SOL * liquidityFeePercentage);
+        const totalPlatformFee = basePlatformFee + liquidityFee;
+        
+        console.log(`Collecting platform fee (${basePlatformFee / LAMPORTS_PER_SOL} SOL base + ${liquidityFee / LAMPORTS_PER_SOL} SOL from liquidity)...`);
         
         const platformFeeTx = new Transaction();
         platformFeeTx.add(
-            SystemProgram.transfer({
+          SystemProgram.transfer({
             fromPubkey: userPublicKey,
             toPubkey: new PublicKey(process.env.NEXT_PUBLIC_PLATFORM_FEE_ADDRESS),
-            lamports: platformFee
+            lamports: totalPlatformFee
           })
         );
         platformFeeTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
@@ -2187,6 +2192,7 @@ View on Birdeye: ${birdeyeUrl}`;
               <li>Example: With 20% retention on 1,000,000 tokens, you keep 200,000 tokens and 800,000 go to the trading pool</li>
               <li>Liquidity amount determines how much SOL is added to create the trading pool</li>
               <li>Higher liquidity creates better initial trading experience but costs more</li>
+              <li>A small platform fee (0.02 SOL + 10% of liquidity) helps keep this service running</li>
             </ul>
           </Typography>
           
@@ -2241,13 +2247,13 @@ View on Birdeye: ${birdeyeUrl}`;
                   aria-labelledby="liquidity-slider"
                   step={0.05}
                   marks={[
-                    { value: 0.05, label: '0.05 SOL' },
+                    { value: 0.2, label: '0.2 SOL' },
+                    { value: 0.3, label: '0.3 SOL' },
                     { value: 0.5, label: '0.5 SOL' },
                     { value: 1, label: '1 SOL' },
-                    { value: 2, label: '2 SOL' },
                     { value: 4, label: '4 SOL' }
                   ]}
-                  min={0.05}
+                  min={0.2}
                   max={4}
                   sx={{
                     color: 'lime',
@@ -2269,7 +2275,7 @@ View on Birdeye: ${birdeyeUrl}`;
                   }}
                 />
                 <Typography variant="caption" sx={{ display: 'block', color: 'rgba(255, 255, 255, 0.7)', mt: 1 }}>
-                  Higher liquidity = better trading experience but costs more SOL. Raydium recommends 4 SOL for optimal trading.
+                  Minimum 0.2 SOL for basic pools (like coinfactory). 0.3-0.5 SOL recommended for better reliability.
                 </Typography>
               </Grid>
               
@@ -2340,15 +2346,17 @@ View on Birdeye: ${birdeyeUrl}`;
               <strong>Additional fees not shown in Phantom:</strong>
               <br />
               • Liquidity Pool Creation: <strong>{liquidityAmount} SOL</strong>
+              <br />
+              • Platform Fee: <strong>0.02 SOL + {(liquidityAmount * 0.1).toFixed(2)} SOL</strong> <span style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.9em' }}>(10% of liquidity amount)</span>
             </Typography>
             
             <Typography variant="h6" component="div" sx={{ color: 'lime', fontWeight: 'bold', mt: 1 }}>
-              Total Fee: {(baseFee + retentionFee + liquidityAmount).toFixed(2)} SOL
+              Total Fee: {(baseFee + retentionFee + liquidityAmount + 0.02 + liquidityAmount * 0.1).toFixed(2)} SOL
             </Typography>
             
             <Typography variant="body2" component="div" sx={{ mt: 1, fontStyle: 'italic', color: 'rgba(255, 255, 255, 0.7)' }}>
-              Note: The fees displayed in your Phantom wallet transaction confirmation will match the breakdown above,
-              with liquidity pool costs shown separately.
+              Note: The platform fee helps maintain this service and develop new features. 
+              Thank you for supporting our project!
             </Typography>
           </Box>
           
@@ -2356,6 +2364,12 @@ View on Birdeye: ${birdeyeUrl}`;
             Tip: A balanced token distribution (20-30% retention) is often ideal for community-focused projects.
             Higher retention gives you more tokens but can affect market dynamics.
           </Typography>
+
+          <Alert severity="info" sx={{ mt: 2, backgroundColor: 'rgba(0, 114, 229, 0.1)', color: 'white', '& .MuiAlert-icon': { color: '#0072e5' } }}>
+            By creating a token, you agree to pay a small platform fee (0.02 SOL + 10% of liquidity). 
+            This helps us maintain the service and build new features. We're committed to offering competitive rates 
+            compared to similar services.
+          </Alert>
         </DialogContent>
         <DialogActions sx={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', p: 2 }}>
           <Button 

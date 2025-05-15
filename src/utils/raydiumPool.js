@@ -176,8 +176,8 @@ export async function createRaydiumPool({
   console.log("Initial parameters:", solAmount / LAMPORTS_PER_SOL, "SOL,", tokenAmount.toString(), "tokens");
   
   try {
-    // Enforce minimum viable SOL amount - Raydium requires at least 0.25 SOL for stable pools
-    const minimumSolAmount = 0.25 * LAMPORTS_PER_SOL;
+    // Enforce minimum viable SOL amount - Need at least 0.3 SOL for reliable pool creation
+    const minimumSolAmount = 0.3 * LAMPORTS_PER_SOL;
     if (solAmount < minimumSolAmount) {
       console.warn(`WARNING: SOL amount ${solAmount / LAMPORTS_PER_SOL} is below recommended minimum. Increasing to ${minimumSolAmount / LAMPORTS_PER_SOL} SOL.`);
       solAmount = minimumSolAmount;
