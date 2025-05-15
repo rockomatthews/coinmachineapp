@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { normalizeIpfsHash } from '@/utils/ipfsUtils';
+// Import node-fetch for server-side fetching with better timeout controls
+import fetch from 'node-fetch';
 
 /**
  * IPFS proxy server to avoid CORS issues
@@ -19,11 +22,13 @@ export async function GET(
     'Cache-Control': 'public, max-age=31536000', // 1 year
   };
   
-  // Special case - if we're retrieving metadata for the token, serve an immediate response
-  // with a minimal valid metadata object, then fetch actual data in the background
-  // This prevents token creation from hanging on IPFS
-  if ((ipfsPath.endsWith('.json') || !ipfsPath.includes('.')) && request.headers.get('x-metadata-required') === 'true') {
-    // Return a minimal valid metadata immediately to unblock the token creation
+  // Special case - if we're retrieving metadata for token creation, serve an immediate response
+  // This prevents token creation from hanging on IPFS timeouts
+  const isMetadataRequired = request.headers.get('x-metadata-required') === 'true';
+  const isMetadataFile = ipfsPath.endsWith('.json') || !ipfsPath.includes('.');
+  
+  if (isMetadataRequired && isMetadataFile) {
+    // Return a valid metadata immediately to unblock the token creation process
     const immediateResponse = {
       name: "Metadata Processing",
       symbol: "TKN",
@@ -35,11 +40,19 @@ export async function GET(
       attributes: []
     };
     
-    // Trigger background fetch but don't wait
-    console.log("Returning immediate response while fetching actual data in background");
+    console.log("Returning immediate response for IPFS metadata:", ipfsPath);
     
-    // Start background fetching (don't await)
-    fetch(`${request.nextUrl.origin}/api/ipfs/${ipfsPath}`).catch(() => {});
+    // Trigger background fetch but don't wait for it
+    try {
+      // Use a non-blocking fetch to warm up the cache
+      const bgFetchUrl = `${request.nextUrl.origin}/api/ipfs/${ipfsPath}`;
+      fetch(bgFetchUrl, {
+        headers: { 'x-background-fetch': 'true' },
+        cache: 'no-store'
+      }).catch(() => {});
+    } catch (e) {
+      // Ignore background fetch errors
+    }
     
     return NextResponse.json(immediateResponse, { headers });
   }
@@ -51,18 +64,22 @@ export async function GET(
     'https://ipfs.io/ipfs/',
     'https://dweb.link/ipfs/',
     'https://ipfs.filebase.io/ipfs/',
-    'https://gateway.ipfs.io/ipfs/',
     'https://nftstorage.link/ipfs/',
     'https://w3s.link/ipfs/'
   ];
   
-  // Set a timeout for each fetch request (10 seconds)
-  const fetchTimeout = 10000;
+  // Set a shorter timeout for each fetch request (5 seconds)
+  const fetchTimeout = 5000;
+  
+  // For background fetches, use a longer timeout
+  const isBackgroundFetch = request.headers.get('x-background-fetch') === 'true';
+  const actualTimeout = isBackgroundFetch ? 15000 : fetchTimeout;
   
   // Define result type for type safety
   type FetchResult = { 
     success: boolean; 
     response?: Response;
+    gateway?: string;
   };
   
   // Try all gateways in parallel for faster response
@@ -73,7 +90,7 @@ export async function GET(
       try {
         // Create an AbortController for timeout
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), fetchTimeout);
+        const timeoutId = setTimeout(() => controller.abort(), actualTimeout);
         
         // Fetch with timeout
         const response = await fetch(gatewayUrl, {
@@ -89,40 +106,54 @@ export async function GET(
         
         // If the response is successful
         if (response.ok) {
-          resolve({ success: true, response });
+          resolve({ success: true, response, gateway });
         } else {
-          resolve({ success: false });
+          resolve({ success: false, gateway });
         }
       } catch (error) {
         // Log the error but don't fail
         console.error(`IPFS proxy error with gateway ${gateway}:`, error);
-        resolve({ success: false });
+        resolve({ success: false, gateway });
       }
     });
   });
   
-  // Use Promise.all to get the first successful response
   try {
-    // Wait for the first successful response or all to fail
-    const results = await Promise.all(fetchPromises);
-    const successResult = results.find(result => result.success);
+    // Create a race between:
+    // 1. The first successful response
+    // 2. A timeout for all requests
+    const overallTimeoutPromise = new Promise<FetchResult>(resolve => {
+      // Overall timeout slightly longer than individual timeouts
+      setTimeout(() => {
+        resolve({ success: false });
+      }, actualTimeout + 2000);
+    });
     
-    if (successResult) {
-      const { response } = successResult as { success: true, response: Response };
+    // Race between individual requests and overall timeout
+    const results = await Promise.race([
+      Promise.all(fetchPromises).then(results => results.find(r => r.success) || { success: false }),
+      overallTimeoutPromise
+    ]);
+    
+    if (results && 'success' in results && results.success) {
+      const { response, gateway } = results as { success: true, response: Response, gateway?: string };
       
       // Get the content type from the response
       const contentType = response.headers.get('content-type') || 'application/octet-stream';
+      
+      console.log(`Successfully fetched IPFS content from gateway: ${gateway}`);
       
       // Get the data
       const data = await response.arrayBuffer();
       
       // Return the response with appropriate headers
       return new NextResponse(data, {
-        status: response.status,
+        status: 200,
         headers: {
           'Content-Type': contentType,
           'Access-Control-Allow-Origin': '*',
           'Cache-Control': 'public, max-age=31536000', // 1 year
+          'X-IPFS-Gateway': gateway || 'unknown'
         },
       });
     }
@@ -130,15 +161,19 @@ export async function GET(
     console.error("All IPFS gateway requests failed:", error);
   }
   
-  // If all gateways failed, try a last-resort approach - return a minimal JSON response
-  // This ensures metadata creation doesn't fail even if we can't fetch from gateways
-  if (ipfsPath.endsWith('.json') || !ipfsPath.includes('.')) {
-    console.log("Returning minimal JSON response as fallback");
+  // If all gateways failed and it's a metadata file, return a valid placeholder
+  if (isMetadataFile) {
+    console.log("Returning fallback metadata for IPFS path:", ipfsPath);
     return NextResponse.json(
       { 
         name: "Token Metadata", 
         symbol: "TKN",
         description: "Token created with CoinBull",
+        image: "",
+        properties: {
+          files: []
+        },
+        attributes: [],
         fallback: true
       },
       { 
