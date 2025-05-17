@@ -2419,7 +2419,7 @@ View on Birdeye: ${birdeyeUrl}`;
 
           <Alert severity="info" sx={{ mt: 2, backgroundColor: 'rgba(0, 114, 229, 0.1)', color: 'white', '& .MuiAlert-icon': { color: '#0072e5' } }}>
             By creating a token, you agree to pay a small platform fee (0.02 SOL + 10% of liquidity). 
-            This helps us maintain the service and build new features. We're committed to offering competitive rates 
+            This helps us maintain the service and build new features. We&aposre committed to offering competitive rates 
             compared to similar services.
           </Alert>
         </DialogContent>
